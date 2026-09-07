@@ -1,0 +1,3 @@
+Kandidát: třetí ročník informatiky (VUT FSI Brno).
+Stack: JavaScript/TypeScript, Angular, Node.js/Express, Docker, Git/CI-CD, REST API, SQL/NoSQL.
+Hledá: junior/entry-level pozici nebo brigádu ve vývoji software, ideálně remote/hybrid nebo Brno.

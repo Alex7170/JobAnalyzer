@@ -1,0 +1,26 @@
+{
+  "name": "jobscz-scraper",
+  "version": "0.1.0",
+  "description": "Scrape jobs.cz, process vacancies with Claude, and analyze the responses",
+  "type": "module",
+  "scripts": {
+    "scrape": "tsx src/scraper/scrape.ts",
+    "process": "tsx src/ai/processJobs.ts",
+    "dev": "tsx watch src/index.ts",
+    "playwright:install": "playwright install chromium"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "dotenv": "^16.4.5",
+    "p-limit": "^6.1.0",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "playwright": "^1.48.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
