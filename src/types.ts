@@ -20,18 +20,23 @@ export type JobListing = z.infer<typeof JobListingSchema>;
 // What we ask Claude to produce for each job listing. Split into two
 // explicit sub-objects so "is this a good fit" and "what to reply" stay
 // clearly separate, both in the JSON shape and wherever we display it later.
-export const JobAssessmentSchema = z.object({
-  jobId: z.string(),
-  assessment: z.object({
-    relevant: z.boolean(),
-    matchScore: z.number().min(0).max(100),
+export const REPLY_THRESHOLD = 7;
+
+export const JobAssessmentSchema = z
+  .object({
+    jobId: z.string(),
     summary: z.string(),
-    reasoning: z.string(),
-  }),
-  reply: z.object({
-    shouldReply: z.boolean(),
-    text: z.string().nullable(),
-  }),
-});
+    evaluation: z.number().int().min(0).max(10),
+    answer: z.string().nullable(),
+  })
+  .refine(
+    (data) =>
+      data.evaluation < REPLY_THRESHOLD ||
+      (data.answer !== null && data.answer.trim().length > 0),
+    {
+      message: `answer must be a non-empty string when evaluation >= ${REPLY_THRESHOLD}`,
+      path: ["answer"],
+    },
+  );
 
 export type JobAssessment = z.infer<typeof JobAssessmentSchema>;

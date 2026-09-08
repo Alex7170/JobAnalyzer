@@ -5,17 +5,20 @@
   "type": "module",
   "scripts": {
     "scrape": "tsx src/scraper/scrape.ts",
-    "process": "tsx src/ai/processJobs.ts",
-    "dev": "tsx watch src/index.ts",
-    "playwright:install": "playwright install chromium"
+    "processGemini": "tsx src/ai/processJobsGemini.ts",
+    "processGroq": "tsx src/ai/processJobsGroq.ts",
+    "export": "tsx src/export/exportToExcel.ts",
+    "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
+    "@google/genai": "^2.21.0",
     "dotenv": "^16.4.5",
+    "groq-sdk": "^1.6.0",
     "p-limit": "^6.1.0",
     "pino": "^9.5.0",
     "pino-pretty": "^11.3.0",
     "playwright": "^1.48.2",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
