@@ -12,6 +12,7 @@ export const JobListingSchema = z.object({
   salary: z.string().nullable(),
   postedLabel: z.string().nullable(), // e.g. "Přidáno dnes"
   scrapedAt: z.string(), // ISO timestamp 
+  description: z.string()
 });
 
 export type JobListing = z.infer<typeof JobListingSchema>;
