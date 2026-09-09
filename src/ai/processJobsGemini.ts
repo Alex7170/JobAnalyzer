@@ -9,6 +9,7 @@ import {
   type JobAssessment,
   type JobListing,
 } from "../types.js";
+
 import { getAllRecords, upsertAssessment } from "../store.js";
 
 const genAI = new GoogleGenAI({
@@ -17,6 +18,9 @@ const genAI = new GoogleGenAI({
 
 const PROMPTS_DIR = new URL("../../prompts/", import.meta.url);
 
+const MAX_RETRIES = 5;
+const INITIAL_RETRY_DELAY = 10_000;
+
 type Prompts = {
   systemPrompt: string;
   candidateProfile: string;
@@ -24,12 +28,11 @@ type Prompts = {
 };
 
 async function loadPrompts(): Promise<Prompts> {
-  const [systemPrompt, candidateProfile, userTemplate] =
-    await Promise.all([
-      readFile(new URL("system.txt", PROMPTS_DIR), "utf-8"),
-      readFile(new URL("candidate-profile.txt", PROMPTS_DIR), "utf-8"),
-      readFile(new URL("assess-job.cz", PROMPTS_DIR), "utf-8"),
-    ]);
+  const [systemPrompt, candidateProfile, userTemplate] = await Promise.all([
+    readFile(new URL("system.txt", PROMPTS_DIR), "utf-8"),
+    readFile(new URL("candidate-profile.txt", PROMPTS_DIR), "utf-8"),
+    readFile(new URL("assess-job.txt", PROMPTS_DIR), "utf-8"),
+  ]);
 
   return {
     systemPrompt: systemPrompt.trim(),
@@ -44,46 +47,129 @@ function buildUserMessage(prompts: Prompts, job: JobListing): string {
     .replaceAll("{{JOB_JSON}}", JSON.stringify(job, null, 2));
 }
 
+function getErrorStatus(err: unknown): number | undefined {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "status" in err
+  ) {
+    const status = (err as { status: unknown }).status;
+
+    if (typeof status === "number") {
+      return status;
+    }
+  }
+
+  return undefined;
+}
+
+function isRetryableError(err: unknown): boolean {
+  const status = getErrorStatus(err);
+  return (
+    status === 429 ||
+    status === 500 ||
+    status === 503
+  );
+}
+
+function getRetryDelay(attempt: number): number {
+  return Math.min(
+    INITIAL_RETRY_DELAY * 2 ** attempt,
+    60_000
+  );
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 async function assessJob(
   job: JobListing,
   prompts: Prompts
 ): Promise<JobAssessment> {
-  const response = await genAI.models.generateContent({
-    model: "gemini-3.8-flash",
-    config: {
-      temperature: 0,
-      maxOutputTokens: 1000,
-      responseMimeType: "application/json",
-      systemInstruction: prompts.systemPrompt,
-    },
-    contents: [
-      {
-        role: "user",
-        parts: [
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await genAI.models.generateContent({
+        model: "gemini-3.1-flash-lite",
+
+        config: {
+          temperature: 0,
+          maxOutputTokens: 1000,
+          responseMimeType: "application/json",
+          systemInstruction: prompts.systemPrompt,
+        },
+
+        contents: [
           {
-            text: buildUserMessage(prompts, job),
+            role: "user",
+            parts: [
+              {
+                text: buildUserMessage(prompts, job),
+              },
+            ],
           },
         ],
-      },
-    ],
-  });
+      });
 
-  const raw = response.text ?? "";
+      const raw = response.text ?? "";
 
-  if (!raw.trim()) {
-    throw new Error("Gemini returned an empty response");
+      if (!raw.trim()) {
+        throw new Error("Gemini returned an empty response");
+      }
+
+      const cleaned = raw
+        .replace(/```json|```/g, "")
+        .trim();
+
+      const parsedJson = JSON.parse(cleaned);
+
+      return JobAssessmentSchema.parse({
+        ...parsedJson,
+        id: job.id,
+      });
+    } catch (err) {
+      const status = getErrorStatus(err);
+
+      logger.error(
+        {
+          err,
+          id: job.id,
+          status,
+          attempt: attempt + 1,
+        },
+        "Gemini request failed"
+      );
+
+      if (
+        isRetryableError(err) &&
+        attempt < MAX_RETRIES
+      ) {
+        const delay = getRetryDelay(attempt);
+
+        logger.warn(
+          {
+            id: job.id,
+            status,
+            retryInSeconds: delay / 1000,
+            nextAttempt: attempt + 2,
+          },
+          "Retryable Gemini error, waiting before retry"
+        );
+
+        await wait(delay);
+
+        continue;
+      }
+
+      throw err;
+    }
   }
 
-  const cleaned = raw
-    .replace(/```json|```/g, "")
-    .trim();
-
-  const parsedJson = JSON.parse(cleaned);
-
-  return JobAssessmentSchema.parse({
-    ...parsedJson,
-    id: job.id,
-  });
+  throw new Error(
+    `Failed to assess job ${job.id} after ${MAX_RETRIES + 1} attempts`
+  );
 }
 
 async function main() {
@@ -96,8 +182,6 @@ async function main() {
 
   const records = await getAllRecords();
 
-  // Only assess jobs that don't already have an evaluation in the store —
-  // re-running this script won't burn API calls re-assessing everything.
   const jobs: JobListing[] = records
     .filter((r) => r.evaluation === undefined)
     .map((r) => JobListingSchema.parse(r));
@@ -113,10 +197,7 @@ async function main() {
     jobs.map((job) =>
       limit(async () => {
         try {
-          const assessment = await assessJob(
-            job,
-            prompts
-          );
+          const assessment = await assessJob(job, prompts);
 
           await upsertAssessment(assessment);
 

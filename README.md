@@ -110,3 +110,5 @@ data/
 - **Move off flat JSON** — if the store grows large, `better-sqlite3`
   with a `jobs` table (`id` as primary key, `UPDATE ... WHERE id = ?`)
   would avoid reading/rewriting the whole file on every upsert.
+- **Delete expired vacancies** - Delete already used or bad `(evaluate<4)`
+  vacancies.
