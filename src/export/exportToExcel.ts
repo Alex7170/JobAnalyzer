@@ -1,20 +1,10 @@
-import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import XLSX from "xlsx";
 import { logger } from "../logger.js";
-import {
-  JobListingSchema,
-  type JobListing,
-} from "../types.js";
+import { getAllRecords } from "../store.js";
 
 async function main() {
-  const dataPath = new URL("../../data/jobs.json", import.meta.url);
-
-  const raw = await readFile(dataPath, "utf-8");
-
-  const jobs: JobListing[] = JobListingSchema.array().parse(
-    JSON.parse(raw)
-  );
+  const jobs = await getAllRecords();
 
   logger.info(
     { count: jobs.length },
@@ -29,6 +19,9 @@ async function main() {
     location: job.location,
     salary: job.salary,
     postedLabel: job.postedLabel,
+    evaluation: job.evaluation ?? "",
+    summary: job.summary ?? "",
+    answer: job.answer ?? "",
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(rows);

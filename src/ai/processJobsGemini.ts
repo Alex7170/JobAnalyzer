@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { GoogleGenAI } from "@google/genai";
 import pLimit from "p-limit";
 import { logger } from "../logger.js";
@@ -9,6 +9,7 @@ import {
   type JobAssessment,
   type JobListing,
 } from "../types.js";
+import { getAllRecords, upsertAssessment } from "../store.js";
 
 const genAI = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -81,7 +82,7 @@ async function assessJob(
 
   return JobAssessmentSchema.parse({
     ...parsedJson,
-    jobId: job.id,
+    id: job.id,
   });
 }
 
@@ -93,22 +94,20 @@ async function main() {
     "Loaded prompt templates from disk"
   );
 
-  const dataPath = new URL("../../data/jobs.json", import.meta.url);
+  const records = await getAllRecords();
 
-  const raw = await readFile(dataPath, "utf-8");
-
-  const jobs = JobListingSchema.array().parse(
-    JSON.parse(raw)
-  );
+  // Only assess jobs that don't already have an evaluation in the store —
+  // re-running this script won't burn API calls re-assessing everything.
+  const jobs: JobListing[] = records
+    .filter((r) => r.evaluation === undefined)
+    .map((r) => JobListingSchema.parse(r));
 
   logger.info(
-    { count: jobs.length },
+    { count: jobs.length, skipped: records.length - jobs.length },
     "Loaded jobs for processing"
   );
 
   const limit = pLimit(3);
-
-  const assessments: JobAssessment[] = [];
 
   await Promise.all(
     jobs.map((job) =>
@@ -119,7 +118,7 @@ async function main() {
             prompts
           );
 
-          assessments.push(assessment);
+          await upsertAssessment(assessment);
 
           logger.info(
             {
@@ -130,7 +129,7 @@ async function main() {
           );
         } catch (err) {
           logger.error(
-            { err, jobId: job.id },
+            { err, id: job.id },
             "Failed to assess job"
           );
         }
@@ -138,23 +137,9 @@ async function main() {
     )
   );
 
-  const outPath = new URL(
-    "../../data/assessments.json",
-    import.meta.url
-  );
-
-  await writeFile(
-    outPath,
-    JSON.stringify(assessments, null, 2),
-    "utf-8"
-  );
-
   logger.info(
-    {
-      outPath: outPath.pathname,
-      count: assessments.length,
-    },
-    "Saved assessments"
+    { dataPath: new URL("../../data/jobs.json", import.meta.url).pathname },
+    "Assessments merged into jobs.json"
   );
 }
 

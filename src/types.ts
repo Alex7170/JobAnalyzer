@@ -24,7 +24,7 @@ export const REPLY_THRESHOLD = 7;
 
 export const JobAssessmentSchema = z
   .object({
-    jobId: z.string(),
+    id: z.string(),
     summary: z.string(),
     evaluation: z.number().int().min(0).max(10),
     answer: z.string().nullable(),
@@ -40,3 +40,5 @@ export const JobAssessmentSchema = z
   );
 
 export type JobAssessment = z.infer<typeof JobAssessmentSchema>;
+
+export type JobRecord = JobListing & Partial<Omit<JobAssessment, "id">>;

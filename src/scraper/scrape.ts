@@ -1,11 +1,11 @@
 import "dotenv/config";
 
 import { chromium, type Browser, type Page } from "playwright";
-import { writeFile, mkdir } from "node:fs/promises";
 
 import { logger } from "../logger.js";
 import { JobListingSchema, type JobListing } from "../types.js";
 import { extractJobId, randomDelay, cleanText } from "./utils.js";
+import { upsertScraped } from "../store.js";
 
 const START_URL =
   process.env.SCRAPE_START_URL ??
@@ -551,37 +551,9 @@ async function main() {
       "Finished scraping job details",
     );
 
-    // saving final result
-    const dataDir = new URL(
-      "../../data/",
-      import.meta.url,
-    );
-
-    await mkdir(dataDir, {
-      recursive: true,
-    });
-
-    const outPath = new URL(
-      "../../data/jobs.json",
-      import.meta.url,
-    );
-
-    await writeFile(
-      outPath,
-      JSON.stringify(
-        scrapedJobs,
-        null,
-        2,
-      ),
-      "utf-8",
-    );
-
-    logger.info(
-      {
-        outPath: outPath.pathname,
-      },
-      "Saved scraped jobs to disk",
-    );
+    // Merge into data/jobs.json by id — this refreshes scraped fields
+    // without touching any AI assessment already stored for the same id.
+    await upsertScraped(scrapedJobs);
   } finally {
     await browser.close();
   }
