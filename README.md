@@ -1,73 +1,112 @@
 # jobscz-scraper
 
-Пайплайн: скрапинг jobs.cz (Playwright) → обработка вакансий через Claude API → анализ ответов.
+A small pipeline that scrapes job listings from jobs.cz (Playwright),
+scores each one with an AI model, and merges everything into a single
+Excel sheet — one row per job, scraped fields and AI verdict together.
 
-## Установка
+```
+jobs.cz  →  scrape.ts  →  data/jobs.json  →  AI processors  →  jobs.xlsx
+                            (single store,        (Gemini / Grok,
+                             keyed by id)           merged back by id)
+```
+
+## Install
 
 ```bash
 npm install
-npm run playwright:install   # ставит headless Chromium для Playwright
-cp .env.example .env         # и вписать свой ANTHROPIC_API_KEY
+npm run playwright:install   # headless Chromium for Playwright
+cp .env.example .env         # then fill in your API key(s) below
 ```
 
-## Запуск
+**Environment variables** (`.env`):
 
-```bash
-npm run scrape    # -> data/jobs.json
-npm run process   # -> data/assessments.json (читает data/jobs.json)
-```
+| Variable          | Required | Description                                      |
+|-------------------|:--------:|---------------------------------------------------|
+| `SCRAPE_START_URL`| yes      | jobs.cz listing URL to start scraping from        |
+| `GEMINI_API_KEY`  | for `processGemini` | Google Gemini API key                   |
+| `GROQ_API_KEY`    | for `processGroq`   | Groq API key                             |
+| `HEADLESS`        | no       | `true`/`false`, run browser headless (default: true) |
+| `MIN_DELAY_MS` / `MAX_DELAY_MS` | no | random delay range between requests, for politeness |
+| `MAX_JOBS`        | no       | cap on how many listings to scrape per run        |
+| `LOG_LEVEL`       | no       | pino log level (default: `info`)                  |
 
-## Важно про robots.txt / антибот-защиту
+## Scripts
 
-`jobs.cz/robots.txt` разрешает `/prace/` (листинги) и `/rpd/` (карточки вакансий) —
-именно эти пути и использует скрапер. Явно запрещены `/muj/`, `/api/`, `/iapi/`,
-`/asmt/`, `/status/`, `/translations/`, `/js/`, `/nabidky-podle-cv/`,
-`/session-log/` — в `scrape.ts` есть проверка `assertAllowedUrl`, которая
-кинет ошибку, если случайно укажешь такой URL в `.env`.
+| Command                | What it does                                                          |
+|-------------------------|------------------------------------------------------------------------|
+| `npm run scrape`        | Scrapes listings and **upserts** them into `data/jobs.json` by `id`   |
+| `npm run processGemini` | Scores unassessed jobs with Gemini, merges results back by `id`       |
+| `npm run processGroq`   | Same, using Groq (Llama) instead of Gemini                            |
+| `npm run export`        | Reads the store and writes `data/jobs.xlsx` with all fields           |
+| `npm run dev`           | Runs `src/index.ts` in watch mode                                     |
 
-Отдельно от robots.txt на сайте, по всей видимости, работает антибот-защита
-на уровне IP/фингерпринта (сторонние скраперы жалуются на блокировку
-датацентровых прокси) — поэтому:
-- используется реальный headless-браузер, а не голый fetch;
-- есть задержки между запросами (`MIN_DELAY_MS`/`MAX_DELAY_MS` в `.env`);
-- не стоит гонять `MAX_JOBS` на сотни и параллелить множество вкладок.
+Run them in order: `scrape` → `processGemini` and/or `processGroq` → `export`.
+Re-running `scrape` or a process script is safe — everything merges into
+the same record by `id`, and already-assessed jobs are skipped.
 
-## Что почти наверняка придётся подправить руками
+## robots.txt / anti-bot notes
 
-Разметка jobs.cz нигде не документирована, поэтому `extractJobsFromPage` в
-`src/scraper/scrape.ts` собирает карточки эвристически: ищет все ссылки на
-`/rpd/{id}/` и пытается вытащить компанию/локацию/зарплату из текста
-родительского блока. Это сработает как отправная точка, но:
+`jobs.cz/robots.txt` allows `/prace/` (listing pages) and `/rpd/` (job
+detail pages) — the only paths the scraper touches. `/muj/`, `/api/`,
+`/iapi/`, `/asmt/`, `/status/`, `/translations/`, `/js/`,
+`/nabidky-podle-cv/`, and `/session-log/` are disallowed; `scrape.ts`
+guards this with `assertAllowedUrl`, which throws if a disallowed URL
+ever ends up in `.env`.
 
-1. Запусти `npm run scrape` с `HEADLESS=false` в `.env`, чтобы увидеть браузер.
-2. Открой ту же страницу в обычном Chrome, зайди в DevTools → Elements,
-   найди контейнер одной карточки вакансии (обычно `<article>` или `<li>` с
-   `data-*` атрибутом).
-3. Замени эвристику (`container.parentElement` цикл + парсинг строк) на
-   точные селекторы этого контейнера — будет надёжнее и быстрее.
+Separately, the site appears to also rate-limit / fingerprint at the
+network level (third-party scrapers report datacenter-proxy blocks), so:
 
-## Структура
+- a real headless browser is used, not a bare `fetch`;
+- requests are spaced out via `MIN_DELAY_MS` / `MAX_DELAY_MS`;
+- avoid pushing `MAX_JOBS` into the hundreds or running many tabs in parallel.
+
+## Markup is unstable — expect to tweak selectors
+
+jobs.cz's markup isn't documented, so `extractJobsFromPage` in
+`src/scraper/scrape.ts` finds cards heuristically: it looks for links
+matching `/rpd/{id}/` and pulls company/location/salary from the
+surrounding block's text. That's a working starting point, but if it
+breaks:
+
+1. Set `HEADLESS=false` in `.env` and run `npm run scrape` to watch the browser.
+2. Open the same page in Chrome DevTools → Elements and find one job
+   card's container (usually an `<article>` or `<li>` with a `data-*` attribute).
+3. Replace the heuristic (`container.parentElement` walk + text parsing)
+   with exact selectors for that container.
+
+## Project structure
 
 ```
 src/
-  types.ts              # zod-схемы JobListing / JobAssessment
-  logger.ts              # pino-логгер
+  types.ts                  # zod schemas: JobListing, JobAssessment, JobRecord
+  store.ts                  # single read/write layer for data/jobs.json,
+                             #   merges scraped + AI data by id
+  logger.ts                 # pino logger
   scraper/
-    scrape.ts             # Playwright: листинг -> data/jobs.json
-    utils.ts              # extractJobId, randomDelay
+    scrape.ts                # Playwright: listing pages -> upsertScraped()
+    utils.ts                 # extractJobId, randomDelay, cleanText
   ai/
-    processJobs.ts         # Claude API: jobs.json -> assessments.json
-  index.ts                # заглушка-оркестратор
+    processJobsGemini.ts      # Gemini: unassessed jobs -> upsertAssessment()
+    processJobsGrok.ts        # Groq (Llama): same, different provider
+  export/
+    exportToExcel.ts          # store -> data/jobs.xlsx (all fields)
+  index.ts                   # orchestrator stub
+
 data/
-  jobs.json               # результат scrape (создаётся при запуске)
-  assessments.json        # результат process (создаётся при запуске)
+  jobs.json                 # single source of truth — one record per job,
+                             #   scraped fields + AI verdict merged by id
+  jobs.xlsx                 # generated by `npm run export`
 ```
 
-## Дальнейшие шаги (не реализовано)
+## Next steps
 
-- Пагинация по нескольким страницам листинга (`?page=N`).
-- Переход на страницу вакансии (`/rpd/{id}/`) за полным описанием перед
-  отправкой в Claude — сейчас в AI уходят только данные с карточки листинга.
-- `node-cron` для периодического запуска.
-- Дедупликация: не гонять уже виденные `id` повторно (например, через
-  `better-sqlite3` вместо плоского JSON).
+- **Pagination** — follow `?page=N` on the listing page instead of scraping
+  only the first page.
+- **Automatic replies** — for jobs where `evaluation` clears the reply
+  threshold and `answer` is filled in, send it out automatically
+  (email/contact form) instead of copying it by hand.
+- **Scheduling** — `node-cron` (or a system cron job) to run
+  `scrape` → `processGemini`/`processGroq` → `export` periodically.
+- **Move off flat JSON** — if the store grows large, `better-sqlite3`
+  with a `jobs` table (`id` as primary key, `UPDATE ... WHERE id = ?`)
+  would avoid reading/rewriting the whole file on every upsert.
