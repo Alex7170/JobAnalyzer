@@ -5,7 +5,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { logger } from "../logger.js";
 import { JobListingSchema, type JobListing } from "../types.js";
 import { extractJobId, randomDelay, cleanText } from "./utils.js";
-import { upsertScraped } from "../store.js";
+import { upsertScraped, getExistingIds } from "../store.js";
 
 const START_URL =
   process.env.SCRAPE_START_URL ??
@@ -551,9 +551,11 @@ async function collectJobLinks(
  * MAIN PIPELINE
  *
  * 1. Load listing page(s), paginating until MAX_JOBS links are collected.
- * 2. Open every link separately.
- * 3. Extract key values.
- * 4. Save to json
+ * 2. Skip ids already present in the store — only open detail pages for
+ *    jobs we haven't scraped before.
+ * 3. Open every remaining link separately.
+ * 4. Extract key values.
+ * 5. Save to json
  */
 async function main() {
   const browser = await chromium.launch({
@@ -565,10 +567,20 @@ async function main() {
 
     const limitedJobs = jobLinks.slice(0, MAX_JOBS);
 
+    // Skip jobs we already have in the DB — only scrape details for
+    // ids that are genuinely new.
+    const existingIds = await getExistingIds();
+
+    const newJobs = limitedJobs.filter(
+      (job) => !existingIds.has(job.id),
+    );
+
     logger.info(
       {
         totalFound: jobLinks.length,
-        processing: limitedJobs.length,
+        collected: limitedJobs.length,
+        alreadyInDb: limitedJobs.length - newJobs.length,
+        toScrape: newJobs.length,
       },
       "Starting job detail scraping",
     );
@@ -577,12 +589,12 @@ async function main() {
 
     for (
       const [index, job]
-      of limitedJobs.entries()
+      of newJobs.entries()
     ) {
       logger.info(
         {
           index: index + 1,
-          total: limitedJobs.length,
+          total: newJobs.length,
           id: job.id,
           url: job.url,
         },
@@ -604,7 +616,7 @@ async function main() {
        */
       if (
         index <
-        limitedJobs.length - 1
+        newJobs.length - 1
       ) {
         await randomDelay(
           MIN_DELAY_MS,
@@ -617,7 +629,7 @@ async function main() {
       {
         scraped: scrapedJobs.length,
         failed:
-          limitedJobs.length -
+          newJobs.length -
           scrapedJobs.length,
       },
       "Finished scraping job details",
