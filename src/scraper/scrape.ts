@@ -13,6 +13,9 @@ const START_URL =
 
 const MAX_JOBS = Number(process.env.MAX_JOBS ?? 20);
 
+// Safety cap so a markup change / infinite "next page" can't loop forever.
+const MAX_PAGES = Number(process.env.MAX_PAGES ?? 10);
+
 const MIN_DELAY_MS = Number(process.env.MIN_DELAY_MS ?? 1200);
 const MAX_DELAY_MS = Number(process.env.MAX_DELAY_MS ?? 3000);
 
@@ -42,6 +45,24 @@ function assertAllowedUrl(url: string): void {
       `Refusing to scrape disallowed path per robots.txt: ${path}`,
     );
   }
+}
+
+/**
+ * Builds the URL for a given listing page number, preserving any other
+ * query params already present on the base URL (e.g. profession filter).
+ *
+ * Page 1 has no `page` param at all on jobs.cz, so we strip it in that case.
+ */
+function buildListingPageUrl(baseUrl: string, page: number): string {
+  const url = new URL(baseUrl);
+
+  if (page > 1) {
+    url.searchParams.set("page", String(page));
+  } else {
+    url.searchParams.delete("page");
+  }
+
+  return url.toString();
 }
 
 type JobLink = {
@@ -382,9 +403,10 @@ async function scrapeJobDetail(
 /**
  * STEP 4
  *
- * Load the listing page and collect job URLs.
+ * Load ONE listing page and collect job URLs from it.
  *
- * This function does NOT open individual jobs.
+ * This function does NOT open individual jobs and does NOT paginate —
+ * pagination is handled by the caller (see collectJobLinks / main).
  */
 async function scrapeListing(
   browser: Browser,
@@ -449,7 +471,7 @@ async function scrapeListing(
       })
       .catch(() => {
         logger.warn(
-          "No job links found on listing page — markup may have changed or page may be blocked",
+          "No job links found on listing page — markup may have changed, page may be blocked, or this page number is past the last page",
         );
       });
 
@@ -471,13 +493,67 @@ async function scrapeListing(
 }
 
 /**
+ * STEP 4b
+ *
+ * Walk listing pages (page=1, 2, 3, ...) until either:
+ * - we've collected at least MAX_JOBS unique job links, or
+ * - a page comes back with zero job links (end of results), or
+ * - we hit the MAX_PAGES safety cap.
+ */
+async function collectJobLinks(
+  browser: Browser,
+  baseUrl: string,
+): Promise<JobLink[]> {
+  const collected: JobLink[] = [];
+  const seenIds = new Set<string>();
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const pageUrl = buildListingPageUrl(baseUrl, page);
+
+    const pageLinks = await scrapeListing(browser, pageUrl);
+
+    if (pageLinks.length === 0) {
+      logger.info(
+        { page },
+        "Empty listing page, assuming end of pagination",
+      );
+      break;
+    }
+
+    for (const link of pageLinks) {
+      if (!seenIds.has(link.id)) {
+        seenIds.add(link.id);
+        collected.push(link);
+      }
+    }
+
+    logger.info(
+      {
+        page,
+        pageCount: pageLinks.length,
+        totalCollected: collected.length,
+      },
+      "Collected jobs so far",
+    );
+
+    if (collected.length >= MAX_JOBS) {
+      break;
+    }
+
+    // Be polite between listing pages too, not just detail pages.
+    await randomDelay(MIN_DELAY_MS, MAX_DELAY_MS);
+  }
+
+  return collected;
+}
+
+/**
  * MAIN PIPELINE
  *
- * 1. Load listing page.
- * 2. Collect all job links.
- * 3. Open every link separately.
- * 4. Extract key values.
- * 5. Save to json
+ * 1. Load listing page(s), paginating until MAX_JOBS links are collected.
+ * 2. Open every link separately.
+ * 3. Extract key values.
+ * 4. Save to json
  */
 async function main() {
   const browser = await chromium.launch({
@@ -485,11 +561,7 @@ async function main() {
   });
 
   try {
-    const jobLinks =
-      await scrapeListing(
-        browser,
-        START_URL,
-      );
+    const jobLinks = await collectJobLinks(browser, START_URL);
 
     const limitedJobs = jobLinks.slice(0, MAX_JOBS);
 
