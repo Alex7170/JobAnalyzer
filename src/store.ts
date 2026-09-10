@@ -6,70 +6,81 @@ const DATA_DIR = new URL("../data/", import.meta.url);
 const DATA_PATH = new URL("../data/jobs.json", import.meta.url);
 
 async function loadRecords(): Promise<JobRecord[]> {
-  try {
-    const raw = await readFile(DATA_PATH, "utf-8");
-    return JSON.parse(raw) as JobRecord[];
+try {
+const raw = await readFile(DATA_PATH, "utf-8");
+return JSON.parse(raw) as JobRecord[];
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
+if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+return [];
     }
-    throw err;
+throw err;
   }
 }
 
 async function saveRecords(records: JobRecord[]): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(DATA_PATH, JSON.stringify(records, null, 2), "utf-8");
+await mkdir(DATA_DIR, { recursive: true });
+await writeFile(DATA_PATH, JSON.stringify(records, null, 2), "utf-8");
 }
 
 /**
- * Merge freshly scraped jobs into the store.
- *
- * Re-running the scraper will refresh scraped fields (title, salary,
- * description, ...) for a given id WITHOUT wiping out an AI
- * assessment that was already saved for that same id.
+ * Queues up read-modify-write calls so they run one at a time within
+ * this process. Without this, two upserts started close together
+ * (e.g. assessments for two jobs finishing around the same time)
+ * could both read the file before either had written, then both
+ * write back — racing each other and corrupting jobs.json.
  */
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+const result = writeQueue.then(fn, fn);
+writeQueue = result.then(() => undefined, () => undefined);
+return result;
+}
+
 export async function upsertScraped(jobs: JobListing[]): Promise<void> {
-  const records = await loadRecords();
-  const byId = new Map(records.map((r) => [r.id, r]));
+await withWriteLock(async () => {
+const records = await loadRecords();
+const byId = new Map(records.map((r) => [r.id, r]));
 
-  for (const job of jobs) {
-    byId.set(job.id, { ...byId.get(job.id), ...job });
-  }
+for (const job of jobs) {
+byId.set(job.id, { ...byId.get(job.id), ...job });
+    }
 
-  await saveRecords([...byId.values()]);
+await saveRecords([...byId.values()]);
 
-  logger.info(
-    { count: jobs.length, total: byId.size },
-    "Upserted scraped jobs into store",
-  );
+logger.info(
+      { count: jobs.length, total: byId.size },
+"Upserted scraped jobs into store",
+    );
+  });
 }
 
-/**
- * Merge one AI assessment into the matching job record (by id).
- *
- * Called per-job right after the model responds, so progress isn't
- * lost if the process gets interrupted halfway through a batch.
- */
 export async function upsertAssessment(assessment: JobAssessment): Promise<void> {
-  const records = await loadRecords();
-  const byId = new Map(records.map((r) => [r.id, r]));
+await withWriteLock(async () => {
+const records = await loadRecords();
+const byId = new Map(records.map((r) => [r.id, r]));
 
-  const existing = byId.get(assessment.id);
+const existing = byId.get(assessment.id);
 
-  if (!existing) {
-    logger.warn(
-      { id: assessment.id },
-      "Got an assessment for an id that isn't in the store yet — skipping merge",
-    );
-    return;
-  }
+if (!existing) {
+logger.warn(
+        { id: assessment.id },
+"Got an assessment for an id that isn't in the store yet — skipping merge",
+      );
+return;
+    }
 
-  byId.set(assessment.id, { ...existing, ...assessment });
+byId.set(assessment.id, { ...existing, ...assessment });
 
-  await saveRecords([...byId.values()]);
+await saveRecords([...byId.values()]);
+  });
 }
 
 export async function getAllRecords(): Promise<JobRecord[]> {
-  return loadRecords();
+return loadRecords();
+}
+
+export async function getExistingIds(): Promise<Set<string>> {
+const records = await loadRecords();
+return new Set(records.map((r) => r.id));
 }
