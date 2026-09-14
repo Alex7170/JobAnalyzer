@@ -1,11 +1,11 @@
-import "dotenv/config";
+import "../config/loadEnv.js";
 
 import { chromium, type Browser, type Page } from "playwright";
 
-import { logger } from "../logger.js";
-import { JobListingSchema, type JobListing } from "../types.js";
+import { logger } from "../utils/logger.js";
+import { JobListingSchema} from "../cores/types.js";
 import { extractJobId, randomDelay, cleanText } from "./utils.js";
-import { upsertScraped, getExistingIds } from "../store.js";
+import { upsertScraped, getExistingIds } from "../cores/store.js";
 
 const START_URL =
   process.env.SCRAPE_START_URL ??

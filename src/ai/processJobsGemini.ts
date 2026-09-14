@@ -1,22 +1,19 @@
-import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { GoogleGenAI } from "@google/genai";
 import pLimit from "p-limit";
-import { logger } from "../logger.js";
+import { logger } from "../utils/logger.js";
 import {
   JobAssessmentSchema,
   JobListingSchema,
   type JobAssessment,
   type JobListing,
-} from "../types.js";
-
-import { getAllRecords, upsertAssessment } from "../store.js";
+} from "../cores/types.js";
+import { getAllRecords, upsertAssessment } from "../cores/store.js";
+import { PROMPTS_DIR } from "../config/paths.js";
 
 const genAI = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
-
-const PROMPTS_DIR = new URL("../../prompts/", import.meta.url);
 
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY = 10_000;

@@ -5,40 +5,71 @@ scores each one with an AI model, and merges everything into a single
 Excel sheet — one row per job, scraped fields and AI verdict together.
 
 ```
-jobs.cz  →  scrape.ts  →  data/jobs.json  →  AI processors  →  jobs.xlsx
-                            (single store,        (Gemini / Grok,
-                             keyed by id)           merged back by id)
+jobs.cz  →  scrape.ts  →  data/<DATASET>/jobs.json  →  AI processors  →  jobs.xlsx
+                            (single store,               (Gemini / Grok,
+                             keyed by id)                  merged back by id)
 ```
 
 ## Install
 
 ```bash
 npm install
-npm run playwright:install   # headless Chromium for Playwright
-cp .env.example .env         # then fill in your API key(s) below
+cp .env.secrets.example .env.secrets   # API keys + rarely-changed settings
+cp .env.example .env.default           # first dataset profile ("default")
 ```
 
-**Environment variables** (`.env`):
+**Rarely-changed keys** (`.env.secrets`):
 
 | Variable          | Required | Description                                      |
 |-------------------|:--------:|---------------------------------------------------|
-| `SCRAPE_START_URL`| yes      | jobs.cz listing URL to start scraping from        |
 | `GEMINI_API_KEY`  | for `processGemini` | Google Gemini API key                   |
 | `GROQ_API_KEY`    | for `processGroq`   | Groq API key                             |
 | `HEADLESS`        | no       | `true`/`false`, run browser headless (default: true) |
 | `MIN_DELAY_MS` / `MAX_DELAY_MS` | no | random delay range between requests, for politeness |
+| `LOG_LEVEL`       | no       | pino log level (default: `info`)                  |
+
+**Per-dataset profile** (`.env.<name>`, e.g. `.env.default`):
+
+| Variable          | Required | Description                                      |
+|-------------------|:--------:|---------------------------------------------------|
+| `DATASET`         | yes      | Name of this profile — must match a folder under `data/` and `prompts/` |
+| `SCRAPE_START_URL`| yes      | jobs.cz listing URL to start scraping from        |
 | `MAX_JOBS`        | no       | cap on how many listings to scrape per run        |
 | `MAX_PAGES`       | no       | cap on how many listing pages (`?page=N`) to walk before stopping, even if `MAX_JOBS` hasn't been reached yet (default: 10) |
-| `LOG_LEVEL`       | no       | pino log level (default: `info`)                  |
+
+## Datasets / profiles
+
+Everything the pipeline reads and writes is scoped to a `DATASET`:
+
+```
+data/<DATASET>/jobs.json, assessments.json, jobs.xlsx
+prompts/<DATASET>/system.txt, candidate-profile.txt, assess-job.txt
+```
+
+This lets you run several independent scrape + prompt setups (e.g. different
+job categories, different candidate profiles) with the same code, without
+rebuilding anything — just point at a different profile:
+
+```bash
+mkdir -p data/frontend-jobs prompts/frontend-jobs
+cp prompts/default/*.txt prompts/frontend-jobs/   # then edit them
+cp .env.example .env.frontend-jobs                # set DATASET=frontend-jobs + its own URL/limits
+
+DATASET=frontend-jobs npm run scrape               # plain node/tsx
+# or, with Docker:
+ENV_FILE=.env.frontend-jobs docker compose run --rm scrape
+```
+
+No `DATASET` set → falls back to `default`.
 
 ## Scripts
 
 | Command                | What it does                                                          |
 |-------------------------|------------------------------------------------------------------------|
-| `npm run scrape`        | Scrapes listings and **upserts** them into `data/jobs.json` by `id`   |
+| `npm run scrape`        | Scrapes listings and **upserts** them into `data/<DATASET>/jobs.json` by `id` |
 | `npm run processGemini` | Scores unassessed jobs with Gemini, merges results back by `id`       |
 | `npm run processGroq`   | Same, using Groq (Llama) instead of Gemini                            |
-| `npm run export`        | Reads the store and writes `data/jobs.xlsx` with all fields           |
+| `npm run export`        | Reads the store and writes `data/<DATASET>/jobs.xlsx` with all fields |
 | `npm run dev`           | Runs `src/index.ts` in watch mode                                     |
 
 Run them in order: `scrape` → `processGemini` and/or `processGroq` → `export`.
@@ -84,7 +115,7 @@ matching `/rpd/{id}/` and pulls company/location/salary from the
 surrounding block's text. That's a working starting point, but if it
 breaks:
 
-1. Set `HEADLESS=false` in `.env` and run `npm run scrape` to watch the browser.
+1. Set `HEADLESS=false` in `.env.secrets` and run `npm run scrape` to watch the browser.
 2. Open the same page in Chrome DevTools → Elements and find one job
    card's container (usually an `<article>` or `<li>` with a `data-*` attribute).
 3. Replace the heuristic (`container.parentElement` walk + text parsing)
@@ -94,28 +125,50 @@ breaks:
 
 ```
 src/
-  types.ts                  # zod schemas: JobListing, JobAssessment, JobRecord
-  store.ts                  # single read/write layer for data/jobs.json,
-                             #   merges scraped + AI data by id, queues
-                             #   read-modify-write calls so concurrent
-                             #   upserts don't race and corrupt the file
-  logger.ts                 # pino logger
+  index.ts                    # orchestrator stub — the only file kept flat, nothing
+                               #   else wraps it
+
+  config/                     # how the pipeline is configured — no domain logic here
+    loadEnv.ts                 # loads .env.secrets, then the per-dataset .env.<profile>
+                                #   file (ENV_FILE, defaults to .env.default)
+    paths.ts                   # imports loadEnv.ts itself, then reads DATASET and
+                                #   exposes DATA_DIR/PROMPTS_DIR for that profile —
+                                #   everything below imports its paths from here
+                                #   instead of hardcoding them
+
+  core/                       # shared domain layer used by scraper, ai, and export
+    types.ts                   # zod schemas: JobListing, JobAssessment, JobRecord
+    store.ts                   # single read/write layer for data/<DATASET>/jobs.json,
+                                #   merges scraped + AI data by id, queues
+                                #   read-modify-write calls so concurrent
+                                #   upserts don't race and corrupt the file
+
+  utils/                      # technical helpers with no domain meaning of their own
+    logger.ts                  # pino logger
+
   scraper/
-    scrape.ts                # Playwright: paginates listing pages, skips
-                              #   ids already in the store, then scrapes
-                              #   detail pages -> upsertScraped()
-    utils.ts                 # extractJobId, randomDelay, cleanText
+    scrape.ts                  # Playwright: paginates listing pages, skips
+                                #   ids already in the store, then scrapes
+                                #   detail pages -> upsertScraped()
+    utils.ts                   # extractJobId, randomDelay, cleanText
+
   ai/
-    processJobsGemini.ts      # Gemini: unassessed jobs -> upsertAssessment()
-    processJobsGrok.ts        # Groq (Llama): same, different provider
+    processJobsGemini.ts       # Gemini: unassessed jobs -> upsertAssessment()
+    processJobsGroq.ts         # Groq (Llama): same, different provider
+    processJobsGrok.ts         # experimental variant, not wired to an npm script
+
   export/
-    exportToExcel.ts          # store -> data/jobs.xlsx (all fields)
-  index.ts                   # orchestrator stub
+    exportToExcel.ts           # store -> data/<DATASET>/jobs.xlsx (all fields)
 
 data/
-  jobs.json                 # single source of truth — one record per job,
-                             #   scraped fields + AI verdict merged by id
-  jobs.xlsx                 # generated by `npm run export`
+  <DATASET>/
+    jobs.json                 # single source of truth — one record per job,
+                               #   scraped fields + AI verdict merged by id
+    jobs.xlsx                 # generated by `npm run export`
+
+prompts/
+  <DATASET>/
+    system.txt, candidate-profile.txt, assess-job.txt   # per-profile prompts
 ```
 
 ## Next steps

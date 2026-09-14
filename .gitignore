@@ -1,7 +1,16 @@
 node_modules/
 dist/
+
+# Real env files (secrets + per-dataset config) — never commit these.
+# .env.example is a template and IS meant to be committed.
 .env
-data/*.json
-data/*.xlsx
-!data/.gitkeep
+.env.*
+!.env*.example
+
+# Scraped/generated output, per dataset (data/<dataset>/jobs.json etc.)
+data/**/*.json
+data/**/*.xlsx
+!data/**/.gitkeep
+
+# Prompts can contain personal info (candidate-profile.txt) — keep out of git.
 prompts/*

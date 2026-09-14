@@ -1,21 +1,20 @@
-import "dotenv/config";
+import "../config/loadEnv.js";
 import { readFile } from "node:fs/promises";
 import Groq from "groq-sdk";
 import pLimit from "p-limit";
-import { logger } from "../logger.js";
+import { logger } from "../utils/logger.js";
 import {
   JobAssessmentSchema,
   JobListingSchema,
   type JobAssessment,
   type JobListing,
-} from "../types.js";
-import { getAllRecords, upsertAssessment } from "../store.js";
+} from "../cores/types.js";
+import { getAllRecords, upsertAssessment } from "../cores/store.js";
+import { DATA_DIR, PROMPTS_DIR } from "../config/paths.js";
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
-
-const PROMPTS_DIR = new URL("../../prompts/", import.meta.url);
 
 type Prompts = {
   systemPrompt: string;
@@ -133,7 +132,7 @@ async function main() {
   );
 
   logger.info(
-    { dataPath: new URL("../../data/jobs.json", import.meta.url).pathname },
+    { dataPath: new URL("jobs.json", DATA_DIR).pathname },
     "Assessments merged into jobs.json"
   );
 }

@@ -1,9 +1,9 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { logger } from "./logger.js";
+import { logger } from "../utils/logger.js";
 import type { JobListing, JobAssessment, JobRecord } from "./types.js";
+import { DATA_DIR } from "../config/paths.js";
 
-const DATA_DIR = new URL("../data/", import.meta.url);
-const DATA_PATH = new URL("../data/jobs.json", import.meta.url);
+const DATA_PATH = new URL("jobs.json", DATA_DIR);
 
 async function loadRecords(): Promise<JobRecord[]> {
 try {

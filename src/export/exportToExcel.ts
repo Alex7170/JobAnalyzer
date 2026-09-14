@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url";
 import XLSX from "xlsx";
-import { logger } from "../logger.js";
-import { getAllRecords } from "../store.js";
+import { logger } from "../utils/logger.js";
+import { getAllRecords } from "../cores/store.js";
+import { DATA_DIR } from "../config/paths.js";
 
 async function main() {
   const jobs = await getAllRecords();
@@ -34,10 +35,7 @@ async function main() {
     "Jobs"
   );
 
-  const outPath = new URL(
-    "../../data/jobs.xlsx",
-    import.meta.url
-  );
+  const outPath = new URL("jobs.xlsx", DATA_DIR);
 
   XLSX.writeFile(
     workbook,

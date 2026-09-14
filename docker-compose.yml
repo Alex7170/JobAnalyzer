@@ -1,0 +1,36 @@
+x-app: &app
+  build: .
+  image: jobscz-scraper
+  # .env.secrets: rarely-changed keys, shared by every profile.
+  # ENV_FILE: which per-dataset profile to run — defaults to .env.default.
+  # Files are loaded in order, so DATASET/SCRAPE_START_URL/MAX_JOBS/MAX_PAGES
+  # from the second file take effect for that run.
+  #   ENV_FILE=.env.frontend-jobs docker compose run --rm scrape
+  #   ENV_FILE=.env.frontend-jobs docker compose run --rm process-gemini
+  env_file:
+    - .env.secrets
+    - ${ENV_FILE:-.env.default}
+  volumes:
+    - ./data:/app/data
+    - ./prompts:/app/prompts
+
+services:
+  scrape:
+    <<: *app
+    command: npm run scrape
+
+  process-gemini:
+    <<: *app
+    command: npm run processGemini
+
+  process-groq:
+    <<: *app
+    command: npm run processGroq
+
+  export:
+    <<: *app
+    command: npm run export
+
+  dev:
+    <<: *app
+    command: npm run dev
