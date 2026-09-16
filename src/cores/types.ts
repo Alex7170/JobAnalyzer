@@ -12,7 +12,10 @@ export const JobListingSchema = z.object({
   salary: z.string().nullable(),
   postedLabel: z.string().nullable(), // e.g. "Přidáno dnes"
   scrapedAt: z.string(), // ISO timestamp 
-  description: z.string()
+  description: z.string(),
+  // This is intentionally only initialized by the scraper. It is never
+  // changed by automated processing; mark it true manually once answered.
+  answered: z.boolean(),
 });
 
 export type JobListing = z.infer<typeof JobListingSchema>;

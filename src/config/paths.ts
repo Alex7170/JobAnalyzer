@@ -1,10 +1,10 @@
 import "./loadEnv.js";
 
 /**
- * Everything the pipeline reads/writes (data/*.json, data/*.xlsx, prompts/*)
+ * Everything the pipeline reads/writes (data/*.sqlite, data/*.xlsx, prompts/*)
  * lives under a "dataset" subfolder, picked with the DATASET env var:
  *
- *   data/<DATASET>/jobs.json, assessments.json, jobs.xlsx
+ *   data/<DATASET>/jobs.sqlite, jobs.xlsx
  *   prompts/<DATASET>/system.txt, candidate-profile.txt, assess-job.txt
  *
  * This lets one image/codebase run several independent scrape+prompt

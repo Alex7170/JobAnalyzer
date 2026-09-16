@@ -132,8 +132,8 @@ async function main() {
   );
 
   logger.info(
-    { dataPath: new URL("jobs.json", DATA_DIR).pathname },
-    "Assessments merged into jobs.json"
+    { dataPath: new URL("jobs.sqlite", DATA_DIR).pathname },
+    "Assessments merged into SQLite store"
   );
 }
 

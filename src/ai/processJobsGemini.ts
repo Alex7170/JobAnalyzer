@@ -9,7 +9,7 @@ import {
   type JobListing,
 } from "../cores/types.js";
 import { getAllRecords, upsertAssessment } from "../cores/store.js";
-import { PROMPTS_DIR } from "../config/paths.js";
+import { DATA_DIR, PROMPTS_DIR } from "../config/paths.js";
 
 const genAI = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -216,8 +216,8 @@ async function main() {
   );
 
   logger.info(
-    { dataPath: new URL("../../data/jobs.json", import.meta.url).pathname },
-    "Assessments merged into jobs.json"
+    { dataPath: new URL("jobs.sqlite", DATA_DIR).pathname },
+    "Assessments merged into SQLite store"
   );
 }
 

@@ -85,6 +85,7 @@ type ScrapedJob = {
   postedLabel: string | null;
   description: string;
   scrapedAt: string;
+  answered: boolean;
 };
 
 
@@ -364,6 +365,7 @@ async function scrapeJobDetail(
       postedLabel: job.postedLabel,
       description,
       scrapedAt: new Date().toISOString(),
+      answered: false,
     };
     /**
      * Validate result using your existing Zod schema.
@@ -555,7 +557,7 @@ async function collectJobLinks(
  *    jobs we haven't scraped before.
  * 3. Open every remaining link separately.
  * 4. Extract key values.
- * 5. Save to json
+ * 5. Save to SQLite
  */
 async function main() {
   const browser = await chromium.launch({
@@ -635,7 +637,7 @@ async function main() {
       "Finished scraping job details",
     );
 
-    // Merge into data/jobs.json by id — this refreshes scraped fields
+    // Merge into data/jobs.sqlite by id — this refreshes scraped fields
     // without touching any AI assessment already stored for the same id.
     await upsertScraped(scrapedJobs);
   } finally {

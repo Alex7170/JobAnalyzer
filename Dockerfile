@@ -14,7 +14,7 @@ COPY tsconfig.json ./
 COPY src ./src
 COPY prompts ./prompts
 
-# data/ is where jobs.json / assessments.json / jobs.xlsx live.
+# data/ is where jobs.sqlite / jobs.xlsx live.
 # It's meant to be a mounted volume (see docker-compose.yml), but create it
 # here too so a plain `docker run` without a volume still works.
 RUN mkdir -p data

@@ -7,8 +7,11 @@ dist/
 .env.*
 !.env*.example
 
-# Scraped/generated output, per dataset (data/<dataset>/jobs.json etc.)
+# Scraped/generated output, per dataset (data/<dataset>/jobs.sqlite etc.)
 data/**/*.json
+data/**/*.sqlite
+data/**/*.sqlite-shm
+data/**/*.sqlite-wal
 data/**/*.xlsx
 !data/**/.gitkeep
 

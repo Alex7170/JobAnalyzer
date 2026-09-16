@@ -1,5 +1,5 @@
 // Orchestrates the full pipeline: scrape jobs.cz -> process with Claude ->
-// results end up in data/jobs.json and data/assessments.json.
+// results end up in data/jobs.sqlite.
 //
 // Run individually while developing:
 //   npm run scrape

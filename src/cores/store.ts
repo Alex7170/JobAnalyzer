@@ -1,86 +1,156 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import Database from "better-sqlite3";
 import { logger } from "../utils/logger.js";
 import type { JobListing, JobAssessment, JobRecord } from "./types.js";
 import { DATA_DIR } from "../config/paths.js";
 
-const DATA_PATH = new URL("jobs.json", DATA_DIR);
+const DATABASE_PATH = new URL("jobs.sqlite", DATA_DIR);
 
-async function loadRecords(): Promise<JobRecord[]> {
-try {
-const raw = await readFile(DATA_PATH, "utf-8");
-return JSON.parse(raw) as JobRecord[];
-  } catch (err) {
-if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-return [];
-    }
-throw err;
+type JobRow = {
+  id: string;
+  url: string;
+  title: string;
+  company: string | null;
+  location: string | null;
+  salary: string | null;
+  postedLabel: string | null;
+  scrapedAt: string;
+  description: string;
+  summary: string | null;
+  evaluation: number | null;
+  answer: string | null;
+  answered: number;
+};
+
+let database: Database.Database | undefined;
+
+function getDatabase(): Database.Database {
+  if (database) {
+    return database;
   }
+
+  mkdirSync(fileURLToPath(DATA_DIR), { recursive: true });
+  database = new Database(fileURLToPath(DATABASE_PATH));
+  database.pragma("journal_mode = WAL");
+  database.pragma("busy_timeout = 5000");
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      title TEXT NOT NULL,
+      company TEXT,
+      location TEXT,
+      salary TEXT,
+      posted_label TEXT,
+      scraped_at TEXT NOT NULL,
+      description TEXT NOT NULL,
+      summary TEXT,
+      evaluation INTEGER CHECK (evaluation BETWEEN 0 AND 10),
+      answer TEXT,
+      answered INTEGER NOT NULL DEFAULT 0 CHECK (answered IN (0, 1))
+    );
+  `);
+
+  // Existing databases were created before the manual answered flag existed.
+  const columns = database.prepare("PRAGMA table_info(jobs)").all() as Array<{
+    name: string;
+  }>;
+  if (!columns.some((column) => column.name === "answered")) {
+    database.exec(
+      "ALTER TABLE jobs ADD COLUMN answered INTEGER NOT NULL DEFAULT 0 CHECK (answered IN (0, 1))",
+    );
+  }
+
+  return database;
 }
 
-async function saveRecords(records: JobRecord[]): Promise<void> {
-await mkdir(DATA_DIR, { recursive: true });
-await writeFile(DATA_PATH, JSON.stringify(records, null, 2), "utf-8");
-}
-
-/**
- * Queues up read-modify-write calls so they run one at a time within
- * this process. Without this, two upserts started close together
- * (e.g. assessments for two jobs finishing around the same time)
- * could both read the file before either had written, then both
- * write back — racing each other and corrupting jobs.json.
- */
-let writeQueue: Promise<unknown> = Promise.resolve();
-
-function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
-const result = writeQueue.then(fn, fn);
-writeQueue = result.then(() => undefined, () => undefined);
-return result;
+function toJobRecord(row: JobRow): JobRecord {
+  return {
+    id: row.id,
+    url: row.url,
+    title: row.title,
+    company: row.company,
+    location: row.location,
+    salary: row.salary,
+    postedLabel: row.postedLabel,
+    scrapedAt: row.scrapedAt,
+    description: row.description,
+    ...(row.evaluation === null ? {} : { evaluation: row.evaluation }),
+    ...(row.summary === null ? {} : { summary: row.summary }),
+    ...(row.answer === null ? {} : { answer: row.answer }),
+    answered: Boolean(row.answered),
+  };
 }
 
 export async function upsertScraped(jobs: JobListing[]): Promise<void> {
-await withWriteLock(async () => {
-const records = await loadRecords();
-const byId = new Map(records.map((r) => [r.id, r]));
+  const db = getDatabase();
+  const upsert = db.prepare(`
+    INSERT INTO jobs (
+      id, url, title, company, location, salary, posted_label, scraped_at, description, answered
+    ) VALUES (
+      @id, @url, @title, @company, @location, @salary, @postedLabel, @scrapedAt, @description, @answered
+    ) ON CONFLICT(id) DO UPDATE SET
+      url = excluded.url,
+      title = excluded.title,
+      company = excluded.company,
+      location = excluded.location,
+      salary = excluded.salary,
+      posted_label = excluded.posted_label,
+      scraped_at = excluded.scraped_at,
+      description = excluded.description
+  `);
 
-for (const job of jobs) {
-byId.set(job.id, { ...byId.get(job.id), ...job });
+  db.transaction((records: JobListing[]) => {
+    for (const job of records) {
+      // SQLite has no native boolean type. Keep the domain model boolean,
+      // but bind its INTEGER representation at the persistence boundary.
+      upsert.run({ ...job, answered: job.answered ? 1 : 0 });
     }
+  })(jobs);
 
-await saveRecords([...byId.values()]);
+  const total = (db.prepare("SELECT COUNT(*) AS count FROM jobs").get() as {
+    count: number;
+  }).count;
 
-logger.info(
-      { count: jobs.length, total: byId.size },
-"Upserted scraped jobs into store",
-    );
-  });
+  logger.info({ count: jobs.length, total }, "Upserted scraped jobs into SQLite store");
 }
 
 export async function upsertAssessment(assessment: JobAssessment): Promise<void> {
-await withWriteLock(async () => {
-const records = await loadRecords();
-const byId = new Map(records.map((r) => [r.id, r]));
+  const result = getDatabase()
+    .prepare(`
+      UPDATE jobs
+      SET summary = @summary, evaluation = @evaluation, answer = @answer
+      WHERE id = @id
+    `)
+    .run(assessment);
 
-const existing = byId.get(assessment.id);
-
-if (!existing) {
-logger.warn(
-        { id: assessment.id },
-"Got an assessment for an id that isn't in the store yet — skipping merge",
-      );
-return;
-    }
-
-byId.set(assessment.id, { ...existing, ...assessment });
-
-await saveRecords([...byId.values()]);
-  });
+  if (result.changes === 0) {
+    logger.warn(
+      { id: assessment.id },
+      "Got an assessment for an id that isn't in the store yet — skipping merge",
+    );
+  }
 }
 
 export async function getAllRecords(): Promise<JobRecord[]> {
-return loadRecords();
+  const rows = getDatabase()
+    .prepare(`
+      SELECT
+        id, url, title, company, location, salary,
+      posted_label AS postedLabel, scraped_at AS scrapedAt, description,
+      evaluation, summary, answer, answered
+      FROM jobs
+      ORDER BY scraped_at DESC, id ASC
+    `)
+    .all() as JobRow[];
+
+  return rows.map(toJobRecord);
 }
 
 export async function getExistingIds(): Promise<Set<string>> {
-const records = await loadRecords();
-return new Set(records.map((r) => r.id));
+  const rows = getDatabase().prepare("SELECT id FROM jobs").all() as Array<{
+    id: string;
+  }>;
+  return new Set(rows.map((row) => row.id));
 }
