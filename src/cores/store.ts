@@ -155,6 +155,25 @@ export async function getExistingIds(): Promise<Set<string>> {
   return new Set(rows.map((row) => row.id));
 }
 
+/** Removes records confirmed to no longer exist at their source URL. */
+export async function deleteRecords(ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) {
+    return 0;
+  }
+
+  const db = getDatabase();
+  const remove = db.prepare("DELETE FROM jobs WHERE id = ?");
+  let deleted = 0;
+
+  db.transaction((recordIds: readonly string[]) => {
+    for (const id of recordIds) {
+      deleted += remove.run(id).changes;
+    }
+  })(ids);
+
+  return deleted;
+}
+
 /**
  * Applies manual answered-status changes in one SQLite transaction. This is
  * deliberately narrower than a general record update: external tools may

@@ -116,11 +116,18 @@ No `DATASET` set → falls back to `default`.
 | `npm run processGroq`   | Same, using Groq (Llama) instead of Gemini                            |
 | `npm run export`        | Reads the store and writes `data/<DATASET>/jobs.xlsx` with all fields |
 | `npm run sync`          | Imports manual `answered` changes from Google Sheets, then refreshes that sheet from SQLite |
+| `npm run clean`         | Follows each vacancy URL and removes records whose final response is 404 |
 | `npm run dev`           | Runs `src/index.ts` in watch mode                                     |
 
 Run them in order: `scrape` → `processGemini` and/or `processGroq` → `export`.
 Re-running `scrape` or a process script is safe — everything merges into
 the same record by `id`, and already-assessed jobs are skipped.
+
+`npm run clean` checks the current dataset's vacancy URLs with redirects
+enabled. Only records whose final response is HTTP 404 are deleted; request
+errors and every other status leave the record unchanged. Checks run three at
+a time by default; set `CLEAN_CONCURRENCY` in the selected environment profile
+to change that.
 
 ## Pagination
 

@@ -9,6 +9,7 @@
     "processGroq": "tsx src/ai/processJobsGroq.ts",
     "export": "tsx src/export/exportToExcel.ts",
     "sync": "tsx src/sync/syncGoogleSheets.ts",
+    "clean": "tsx src/clean/deleteExpiredVacancies.ts",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
