@@ -1,6 +1,6 @@
 {
   "name": "jobscz-scraper",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Scrape jobs.cz, process vacancies with Claude, and analyze the responses",
   "type": "module",
   "scripts": {
