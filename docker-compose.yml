@@ -31,6 +31,10 @@ services:
     <<: *app
     command: npm run export
 
+  sync:
+    <<: *app
+    command: npm run sync
+
   dev:
     <<: *app
     command: npm run dev

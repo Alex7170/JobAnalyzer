@@ -69,6 +69,15 @@ npm run processGemini
 npm run sync
 ```
 
+Set `GOOGLE_SHEETS_TAB` in each dataset profile when each profile should use a
+different tab in the same spreadsheet. For example, `.env.noit` sets
+`GOOGLE_SHEETS_TAB=Noit`, so run its normal sync command with:
+
+```bash
+ENV_FILE=.env.noit npm run sync
+# Docker: ENV_FILE=.env.noit docker compose run --rm sync
+```
+
 The first sync creates the configured tab if it does not exist. In the sheet,
 edit `answered` with `TRUE`/`FALSE` (or a checkbox); do not change `id`, which
 is used to match a row to its SQL record. Blank `answered` cells mean `false`.
