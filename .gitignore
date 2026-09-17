@@ -17,3 +17,6 @@ data/**/*.xlsx
 
 # Prompts can contain personal info (candidate-profile.txt) — keep out of git.
 prompts/*
+
+# Credentials files
+credentials/*.json

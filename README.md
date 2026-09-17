@@ -37,6 +37,42 @@ cp .env.example .env.default           # first dataset profile ("default")
 | `MAX_JOBS`        | no       | cap on how many listings to scrape per run        |
 | `MAX_PAGES`       | no       | cap on how many listing pages (`?page=N`) to walk before stopping, even if `MAX_JOBS` hasn't been reached yet (default: 10) |
 
+## Google Sheets sync
+
+`npm run sync` synchronizes the current dataset with one Google Sheet. SQLite
+is the source of truth for every job field; the only field that can be edited
+in Google Sheets is `answered`. Syncing always imports that column first, then
+rewrites the sheet from SQLite, so manual status changes are preserved while
+newly scraped and analysed jobs appear automatically.
+
+1. In Google Cloud, enable the **Google Sheets API** and create a service
+   account key (JSON).
+2. Create a Google Sheet and share it with the service account's
+   `client_email` as an **Editor**.
+3. Add the following to `.env.secrets` (the JSON file stays outside the repo):
+
+   ```dotenv
+   GOOGLE_SHEETS_SPREADSHEET_ID=the-id-between-/d/-and-/edit-in-the-sheet-url
+   GOOGLE_SERVICE_ACCOUNT_KEY_FILE=/absolute/path/to/google-service-account.json
+   # Optional; defaults to Jobs
+   GOOGLE_SHEETS_TAB=Jobs
+   ```
+
+   Alternatively set `GOOGLE_SERVICE_ACCOUNT_JSON` to the complete, minified
+   service-account JSON instead of `GOOGLE_SERVICE_ACCOUNT_KEY_FILE`.
+
+Run the pipeline, then synchronize:
+
+```bash
+npm run scrape
+npm run processGemini
+npm run sync
+```
+
+The first sync creates the configured tab if it does not exist. In the sheet,
+edit `answered` with `TRUE`/`FALSE` (or a checkbox); do not change `id`, which
+is used to match a row to its SQL record. Blank `answered` cells mean `false`.
+
 ## Datasets / profiles
 
 Everything the pipeline reads and writes is scoped to a `DATASET`:
@@ -70,6 +106,7 @@ No `DATASET` set → falls back to `default`.
 | `npm run processGemini` | Scores unassessed jobs with Gemini, merges results back by `id`       |
 | `npm run processGroq`   | Same, using Groq (Llama) instead of Gemini                            |
 | `npm run export`        | Reads the store and writes `data/<DATASET>/jobs.xlsx` with all fields |
+| `npm run sync`          | Imports manual `answered` changes from Google Sheets, then refreshes that sheet from SQLite |
 | `npm run dev`           | Runs `src/index.ts` in watch mode                                     |
 
 Run them in order: `scrape` → `processGemini` and/or `processGroq` → `export`.

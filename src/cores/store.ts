@@ -154,3 +154,29 @@ export async function getExistingIds(): Promise<Set<string>> {
   }>;
   return new Set(rows.map((row) => row.id));
 }
+
+/**
+ * Applies manual answered-status changes in one SQLite transaction. This is
+ * deliberately narrower than a general record update: external tools may
+ * only change this user-owned field.
+ */
+export async function updateAnsweredStatuses(
+  statuses: ReadonlyMap<string, boolean>,
+): Promise<number> {
+  const db = getDatabase();
+  const update = db.prepare(`
+    UPDATE jobs
+    SET answered = ?
+    WHERE id = ? AND answered <> ?
+  `);
+
+  let changed = 0;
+  db.transaction((updates: ReadonlyMap<string, boolean>) => {
+    for (const [id, answered] of updates) {
+      const value = answered ? 1 : 0;
+      changed += update.run(value, id, value).changes;
+    }
+  })(statuses);
+
+  return changed;
+}

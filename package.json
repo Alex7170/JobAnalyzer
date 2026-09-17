@@ -8,12 +8,14 @@
     "processGemini": "tsx src/ai/processJobsGemini.ts",
     "processGroq": "tsx src/ai/processJobsGroq.ts",
     "export": "tsx src/export/exportToExcel.ts",
+    "sync": "tsx src/sync/syncGoogleSheets.ts",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
     "@google/genai": "^2.21.0",
     "better-sqlite3": "^12.11.1",
     "dotenv": "^16.4.5",
+    "googleapis": "^181.0.0",
     "groq-sdk": "^1.6.0",
     "npm": "^12.0.2",
     "p-limit": "^6.1.0",
