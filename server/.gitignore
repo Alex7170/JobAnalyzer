@@ -16,7 +16,7 @@ data/**/*.xlsx
 !data/**/.gitkeep
 
 # Prompts can contain personal info (candidate-profile.txt) — keep out of git.
-prompts/*
-
+prompts/**/*.txt
+!prompts/**/.gitkeep
 # Credentials files
 credentials/*.json

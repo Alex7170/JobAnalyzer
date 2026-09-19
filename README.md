@@ -230,7 +230,3 @@ prompts/
   (email/contact form) instead of copying it by hand.
 - **Scheduling** — `node-cron` (or a system cron job) to run
   `scrape` → `processGemini`/`processGroq` → `export` periodically.
-- **Database maintenance** — back up `data/<DATASET>/jobs.sqlite` before
-  performing manual database maintenance or schema changes.
-- **Delete expired vacancies** - Delete already used or bad `(evaluate<4)`
-  vacancies.
