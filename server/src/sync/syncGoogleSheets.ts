@@ -1,15 +1,17 @@
 import { resolve } from "node:path";
-
 import { google } from "googleapis";
-
 import { logger } from "../utils/logger.js";
 
 import {
   getAllRecords,
-  updateAnsweredStatuses,
+  updateStatuses,
 } from "../cores/store.js";
 
-import type { JobRecord } from "../cores/types.js";
+import {
+  JobStatusSchema,
+  type JobRecord,
+  type JobStatus,
+} from "../cores/types.js";
 import {
   buildTableFormatting,
   LAST_TABLE_COLUMN,
@@ -30,40 +32,15 @@ function sheetRange(range: string): string {
   return `'${SHEET_NAME.replaceAll("'", "''")}'!${range}`;
 }
 
-function parseAnswered(value: unknown): boolean | undefined {
-  if (typeof value === "boolean") {
-    return value;
-  }
-
-  if (typeof value === "number") {
-    if (value === 1) return true;
-    if (value === 0) return false;
-
-    return undefined;
-  }
-
+function parseStatus(value: unknown): JobStatus | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
 
-  switch (value.trim().toLowerCase()) {
-    case "true":
-    case "yes":
-    case "y":
-    case "1":
-    case "x":
-      return true;
+  const normalized = value.trim().toUpperCase();
+  const parsed = JobStatusSchema.safeParse(normalized);
 
-    case "false":
-    case "no":
-    case "n":
-    case "0":
-    case "":
-      return false;
-
-    default:
-      return undefined;
-  }
+  return parsed.success ? parsed.data : undefined;
 }
 
 function cellValue(
@@ -137,7 +114,7 @@ async function main(): Promise<void> {
 
   let spreadsheet = await sheets.spreadsheets.get({
     spreadsheetId: SPREADSHEET_ID,
-    fields: "sheets.properties",
+    fields: "sheets.properties,sheets.conditionalFormats",
   });
 
   let currentSheet = spreadsheet.data.sheets?.find(
@@ -168,7 +145,7 @@ async function main(): Promise<void> {
     // Reload spreadsheet information to get the new sheetId.
     spreadsheet = await sheets.spreadsheets.get({
       spreadsheetId: SPREADSHEET_ID,
-      fields: "sheets.properties",
+      fields: "sheets.properties,sheets.conditionalFormats",
     });
 
     currentSheet = spreadsheet.data.sheets?.find(
@@ -187,7 +164,7 @@ async function main(): Promise<void> {
   // ------------------------------------------------------------
   // Read existing sheet first
   // ------------------------------------------------------------
-  // This is important because "answered" is manually controlled
+  // This is important because the job status is manually controlled
   // from Google Sheets.
 
   const existing = await sheets.spreadsheets.values.get({
@@ -204,7 +181,7 @@ async function main(): Promise<void> {
     databaseJobs.map((job) => job.id),
   );
 
-  const statuses = new Map<string, boolean>();
+  const statuses = new Map<string, JobStatus>();
 
   if (sheetRows.length > 0) {
     const header = sheetRows[0].map((value) =>
@@ -212,11 +189,11 @@ async function main(): Promise<void> {
     );
 
     const idIndex = header.indexOf("id");
-    const answeredIndex = header.indexOf("answered");
+    const statusIndex = header.indexOf("status");
 
-    if (idIndex === -1 || answeredIndex === -1) {
+    if (idIndex === -1 || statusIndex === -1) {
       logger.warn(
-        "Google Sheet has no id/answered headers; skipped importing manual changes and will reset its table layout",
+        "Google Sheet has no id/status headers; skipped importing manual status changes and will reset its table layout",
       );
     } else {
       for (const row of sheetRows.slice(1)) {
@@ -228,23 +205,21 @@ async function main(): Promise<void> {
           continue;
         }
 
-        const answered = parseAnswered(
-          row[answeredIndex],
-        );
+        const status = parseStatus(row[statusIndex]);
 
-        if (answered === undefined) {
+        if (status === undefined) {
           logger.warn(
             {
               id,
-              value: row[answeredIndex],
+              value: row[statusIndex],
             },
-            "Ignored invalid answered value in Google Sheet",
+            "Ignored invalid status value in Google Sheet",
           );
 
           continue;
         }
 
-        statuses.set(id, answered);
+        statuses.set(id, status);
       }
     }
   }
@@ -254,7 +229,7 @@ async function main(): Promise<void> {
   // ------------------------------------------------------------
 
   const changed =
-    await updateAnsweredStatuses(statuses);
+    await updateStatuses(statuses);
 
   // ------------------------------------------------------------
   // Read updated data from SQLite
@@ -297,10 +272,17 @@ async function main(): Promise<void> {
     });
   }
 
+  const existingConditionalFormatRuleCount =
+    currentSheet?.conditionalFormats?.length ?? 0;
+
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: SPREADSHEET_ID,
     requestBody: {
-      requests: buildTableFormatting(sheetId, values.length),
+      requests: buildTableFormatting(
+        sheetId,
+        values.length,
+        existingConditionalFormatRuleCount,
+      ),
     },
   });
 
@@ -320,6 +302,5 @@ main().catch((err: unknown) => {
     { err },
     "Google Sheets synchronization failed",
   );
-
   process.exit(1);
 });

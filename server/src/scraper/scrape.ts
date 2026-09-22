@@ -85,7 +85,7 @@ type ScrapedJob = {
   postedLabel: string | null;
   description: string;
   scrapedAt: string;
-  answered: boolean;
+  status: "SCRAPED";
 };
 
 
@@ -365,7 +365,7 @@ async function scrapeJobDetail(
       postedLabel: job.postedLabel,
       description,
       scrapedAt: new Date().toISOString(),
-      answered: false,
+      status: "SCRAPED",
     };
     /**
      * Validate result using your existing Zod schema.

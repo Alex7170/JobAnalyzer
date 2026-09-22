@@ -180,7 +180,7 @@ async function main() {
   const records = await getAllRecords();
 
   const jobs: JobListing[] = records
-    .filter((r) => r.evaluation === undefined)
+    .filter((r) => r.status === "SCRAPED" && r.evaluation === undefined)
     .map((r) => JobListingSchema.parse(r));
 
   logger.info(

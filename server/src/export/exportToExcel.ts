@@ -23,7 +23,7 @@ async function main() {
     evaluation: job.evaluation ?? "",
     summary: job.summary ?? "",
     answer: job.answer ?? "",
-    answered: job.answered,
+    status: job.status,
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(rows);

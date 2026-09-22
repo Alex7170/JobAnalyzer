@@ -1,8 +1,15 @@
 import { z } from "zod";
 
-// Raw shape we pull out of the DOM. Keep this loose/nullable —
-// jobs.cz markup varies between "classic" and "widget" pages,
-// and fields are frequently missing (salary, etc).
+
+export const JobStatusSchema = z.enum([
+  "SCRAPED", // initial state, before analyzing
+  "ANALYZED", // after AI analysis but before manual decision
+  "APPROVED", // selected as a good fit
+  "SKIPPED", // explicitly declined / ignored
+  "ANSWERED", // manually answered and closed
+]);
+export type JobStatus = z.infer<typeof JobStatusSchema>;
+
 export const JobListingSchema = z.object({
   id: z.string(), // numeric id parsed out of the /rpd/{id}/ url
   url: z.string().url(),
@@ -13,9 +20,7 @@ export const JobListingSchema = z.object({
   postedLabel: z.string().nullable(), // e.g. "Přidáno dnes"
   scrapedAt: z.string(), // ISO timestamp 
   description: z.string(),
-  // This is intentionally only initialized by the scraper. It is never
-  // changed by automated processing; mark it true manually once answered.
-  answered: z.boolean(),
+  status: JobStatusSchema.default("SCRAPED"),
 });
 
 export type JobListing = z.infer<typeof JobListingSchema>;

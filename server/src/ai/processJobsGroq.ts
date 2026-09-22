@@ -96,7 +96,7 @@ async function main() {
   // Only assess jobs that don't already have an evaluation in the store —
   // re-running this script won't burn API calls re-assessing everything.
   const jobs: JobListing[] = records
-    .filter((r) => r.evaluation === undefined)
+    .filter((r) => r.status === "SCRAPED" && r.evaluation === undefined)
     .map((r) => JobListingSchema.parse(r));
 
   logger.info(

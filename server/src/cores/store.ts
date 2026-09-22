@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { logger } from "../utils/logger.js";
-import type { JobListing, JobAssessment, JobRecord } from "./types.js";
+import type { JobListing, JobAssessment, JobRecord, JobStatus } from "./types.js";
 import { DATA_DIR } from "../config/paths.js";
 
 const DATABASE_PATH = new URL("jobs.sqlite", DATA_DIR);
@@ -17,10 +17,10 @@ type JobRow = {
   postedLabel: string | null;
   scrapedAt: string;
   description: string;
+  status: JobStatus;
   summary: string | null;
   evaluation: number | null;
   answer: string | null;
-  answered: number;
 };
 
 let database: Database.Database | undefined;
@@ -45,20 +45,20 @@ function getDatabase(): Database.Database {
       posted_label TEXT,
       scraped_at TEXT NOT NULL,
       description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'SCRAPED' CHECK (status IN ('SCRAPED', 'ANALYZED', 'APPROVED', 'SKIPPED', 'ANSWERED')),
       summary TEXT,
       evaluation INTEGER CHECK (evaluation BETWEEN 0 AND 10),
-      answer TEXT,
-      answered INTEGER NOT NULL DEFAULT 0 CHECK (answered IN (0, 1))
+      answer TEXT
     );
   `);
 
-  // Existing databases were created before the manual answered flag existed.
   const columns = database.prepare("PRAGMA table_info(jobs)").all() as Array<{
     name: string;
   }>;
-  if (!columns.some((column) => column.name === "answered")) {
+
+  if (!columns.some((column) => column.name === "status")) {
     database.exec(
-      "ALTER TABLE jobs ADD COLUMN answered INTEGER NOT NULL DEFAULT 0 CHECK (answered IN (0, 1))",
+      "ALTER TABLE jobs ADD COLUMN status TEXT NOT NULL DEFAULT 'SCRAPED' CHECK (status IN ('SCRAPED', 'ANALYZED', 'APPROVED', 'SKIPPED', 'ANSWERED'))",
     );
   }
 
@@ -76,10 +76,10 @@ function toJobRecord(row: JobRow): JobRecord {
     postedLabel: row.postedLabel,
     scrapedAt: row.scrapedAt,
     description: row.description,
+    status: row.status,
     ...(row.evaluation === null ? {} : { evaluation: row.evaluation }),
     ...(row.summary === null ? {} : { summary: row.summary }),
     ...(row.answer === null ? {} : { answer: row.answer }),
-    answered: Boolean(row.answered),
   };
 }
 
@@ -87,9 +87,9 @@ export async function upsertScraped(jobs: JobListing[]): Promise<void> {
   const db = getDatabase();
   const upsert = db.prepare(`
     INSERT INTO jobs (
-      id, url, title, company, location, salary, posted_label, scraped_at, description, answered
+      id, url, title, company, location, salary, posted_label, scraped_at, description, status
     ) VALUES (
-      @id, @url, @title, @company, @location, @salary, @postedLabel, @scrapedAt, @description, @answered
+      @id, @url, @title, @company, @location, @salary, @postedLabel, @scrapedAt, @description, @status
     ) ON CONFLICT(id) DO UPDATE SET
       url = excluded.url,
       title = excluded.title,
@@ -103,9 +103,7 @@ export async function upsertScraped(jobs: JobListing[]): Promise<void> {
 
   db.transaction((records: JobListing[]) => {
     for (const job of records) {
-      // SQLite has no native boolean type. Keep the domain model boolean,
-      // but bind its INTEGER representation at the persistence boundary.
-      upsert.run({ ...job, answered: job.answered ? 1 : 0 });
+      upsert.run(job);
     }
   })(jobs);
 
@@ -120,7 +118,13 @@ export async function upsertAssessment(assessment: JobAssessment): Promise<void>
   const result = getDatabase()
     .prepare(`
       UPDATE jobs
-      SET summary = @summary, evaluation = @evaluation, answer = @answer
+      SET summary = @summary,
+          evaluation = @evaluation,
+          answer = @answer,
+          status = CASE
+            WHEN status = 'SCRAPED' THEN 'ANALYZED'
+            ELSE status
+          END
       WHERE id = @id
     `)
     .run(assessment);
@@ -139,7 +143,7 @@ export async function getAllRecords(): Promise<JobRecord[]> {
       SELECT
         id, url, title, company, location, salary,
       posted_label AS postedLabel, scraped_at AS scrapedAt, description,
-      evaluation, summary, answer, answered
+      status, evaluation, summary, answer
       FROM jobs
       ORDER BY scraped_at DESC, id ASC
     `)
@@ -175,25 +179,24 @@ export async function deleteRecords(ids: readonly string[]): Promise<number> {
 }
 
 /**
- * Applies manual answered-status changes in one SQLite transaction. This is
- * deliberately narrower than a general record update: external tools may
- * only change this user-owned field.
+ * Applies manual status changes in one SQLite transaction. This is intentionally
+ * narrower than a general record update: external tools may only change the
+ * user-owned lifecycle status.
  */
-export async function updateAnsweredStatuses(
-  statuses: ReadonlyMap<string, boolean>,
+export async function updateStatuses(
+  statuses: ReadonlyMap<string, JobStatus>,
 ): Promise<number> {
   const db = getDatabase();
   const update = db.prepare(`
     UPDATE jobs
-    SET answered = ?
-    WHERE id = ? AND answered <> ?
+    SET status = ?
+    WHERE id = ? AND status <> ?
   `);
 
   let changed = 0;
-  db.transaction((updates: ReadonlyMap<string, boolean>) => {
-    for (const [id, answered] of updates) {
-      const value = answered ? 1 : 0;
-      changed += update.run(value, id, value).changes;
+  db.transaction((updates: ReadonlyMap<string, JobStatus>) => {
+    for (const [id, status] of updates) {
+      changed += update.run(status, id, status).changes;
     }
   })(statuses);
 
