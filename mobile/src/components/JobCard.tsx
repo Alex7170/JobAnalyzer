@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Keyboard,
   Linking,
+  Modal,
   PanResponder,
   ScrollView,
   Text,
@@ -9,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { styles } from './JobCard.styles';
 
@@ -60,8 +63,9 @@ export default function JobCard({ job, onApprove, onReject }: JobCardProps) {
   const [savedAnswer, setSavedAnswer] = useState(job.answer || '');
   const [approved, setApproved] = useState(job.status === 'APPROVED');
   const [rejected, setRejected] = useState(job.status === 'SKIPPED');
+  const [kbHeight, setKbHeight] = useState(0);
   const isDirty = answerText !== savedAnswer;
-
+  const insets = useSafeAreaInsets();
   // Refs so the (single, long-lived) PanResponder always calls the latest
   // version of these without being recreated on every render.
   const expandedRef = useRef(expanded);
@@ -81,8 +85,26 @@ export default function JobCard({ job, onApprove, onReject }: JobCardProps) {
     setExpanded('none');
   }, [job.id, job.answer, job.status]);
 
+  // Track the keyboard height manually. KeyboardAvoidingView measures its
+  // position relative to its parent, which breaks inside a card that is
+  // offset from the top of the screen and wrapped in a transformed view.
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e) =>
+      setKbHeight(e.endCoordinates.height)
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
   const closeSection = useCallback(() => setExpanded('none'), []);
-  const saveAnswer = useCallback(() => setSavedAnswer(answerText), [answerText]);
+  const saveAnswer = useCallback(() => {
+    setSavedAnswer(answerText);
+    Keyboard.dismiss();
+    closeSection();
+  }, [answerText, closeSection]);
 
   const position = useRef(new Animated.ValueXY()).current;
 
@@ -180,19 +202,69 @@ export default function JobCard({ job, onApprove, onReject }: JobCardProps) {
     extrapolate: 'clamp',
   });
 
-  const renderOverlay = (title: string, content: string, editable = false) => (
+  // Read-only overlay (Summary / Description), rendered inside the card.
+  const renderOverlay = (title: string, content: string) => (
     <View style={styles.overlay}>
       <View style={styles.overlayHeader}>
         <Text style={styles.overlayTitle}>{title}</Text>
         <View style={styles.overlayHeaderActions}>
-          {editable && isDirty && <TouchableOpacity onPress={saveAnswer} style={styles.saveButton}><Text style={styles.saveButtonText}>Save</Text></TouchableOpacity>}
-          <TouchableOpacity onPress={closeSection} style={styles.closeButton}><Text style={styles.closeButtonText}>✕</Text></TouchableOpacity>
+          <TouchableOpacity onPress={closeSection} style={styles.closeButton}>
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
         </View>
       </View>
-      <ScrollView style={styles.overlayScroll} contentContainerStyle={styles.overlayScrollContent}>
-        {editable ? <TextInput style={styles.answerInput} value={answerText} onChangeText={setAnswerText} multiline textAlignVertical="top" placeholder="Write your answer…" placeholderTextColor="#9aa0a6" autoFocus /> : <Text style={styles.overlayText}>{content}</Text>}
-      </ScrollView>
+      <View style={styles.overlayContent}>
+        <ScrollView
+          style={styles.overlayScroll}
+          contentContainerStyle={styles.overlayScrollContent}
+        >
+          <Text style={styles.overlayText}>{content}</Text>
+        </ScrollView>
+      </View>
     </View>
+  );
+
+  // Answer editor lives in a Modal so it is independent of the card's
+  // height, position and transform. The bottom padding equals the keyboard
+  // height, so the sheet shrinks and the TextInput stays fully visible.
+  const renderAnswerModal = () => (
+    <Modal
+      visible={expanded === 'answer'}
+      animationType="slide"
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      onRequestClose={closeSection}
+    >
+      <View style={[styles.modalRoot, { paddingBottom: kbHeight > 0 ? kbHeight + insets.bottom : 0 }]}>
+        <View style={styles.modalSheet}>
+          <View style={styles.overlayHeader}>
+            <Text style={styles.overlayTitle}>Answer</Text>
+            <View style={styles.overlayHeaderActions}>
+              {isDirty && (
+                <TouchableOpacity onPress={saveAnswer} style={styles.saveButton}>
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={closeSection} style={styles.closeButton}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <TextInput
+            style={styles.answerInput}
+            value={answerText}
+            onChangeText={setAnswerText}
+            multiline
+            scrollEnabled
+            textAlignVertical="top"
+            placeholder="Write your answer…"
+            placeholderTextColor="#9aa0a6"
+            autoFocus
+          />
+        </View>
+      </View>
+    </Modal>
   );
 
   return (
@@ -241,7 +313,7 @@ export default function JobCard({ job, onApprove, onReject }: JobCardProps) {
       </View>
       {expanded === 'description' && renderOverlay('Description', job.description)}
       {expanded === 'summary' && renderOverlay('Summary', job.summary)}
-      {expanded === 'answer' && renderOverlay('Answer', answerText, true)}
+      {renderAnswerModal()}
     </Animated.View>
   );
 }

@@ -10,7 +10,7 @@
     "web": "node scripts/build-env.js && expo start --web"
   },
   "dependencies": {
-    "expo": "^57.0.24",
+    "expo": "^57.0.25",
     "expo-status-bar": "~57.0.1",
     "expo-web-browser": "~57.0.0",
     "react": "19.2.3",

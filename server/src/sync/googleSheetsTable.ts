@@ -187,11 +187,11 @@ export function buildTableFormatting(
 
     const analyzedSplitRules: Array<{ formula: string; color: RgbColor }> = [
       {
-        formula: `=(${statusRef}="ANALYZED")*(${evaluationRef}>${REPLY_THRESHOLD})`,
+        formula: `=(${statusRef}="ANALYZED")*(${evaluationRef}>=${REPLY_THRESHOLD})`,
         color: ANALYZED_HIGH_COLOR,
       },
       {
-        formula: `=(${statusRef}="ANALYZED")*(${evaluationRef}<=${REPLY_THRESHOLD})`,
+        formula: `=(${statusRef}="ANALYZED")*(${evaluationRef}<${REPLY_THRESHOLD})`,
         color: ANALYZED_LOW_COLOR,
       },
     ];

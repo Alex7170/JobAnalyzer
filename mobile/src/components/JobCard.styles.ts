@@ -40,8 +40,11 @@ export const styles = StyleSheet.create({
   closeButtonText: { fontSize: 15, color: '#374151' },
   saveButton: { backgroundColor: '#111827', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999 },
   saveButtonText: { color: '#34d399', fontSize: 13, fontWeight: '700' },
+  overlayContent: { flex: 1 },
   overlayScroll: { flex: 1 },
-  overlayScrollContent: { padding: 20 },
+  overlayScrollContent: { flexGrow: 1, padding: 20, paddingBottom: 40 },
   overlayText: { fontSize: 16, lineHeight: 24, color: '#1f2937' },
-  answerInput: { fontSize: 16, lineHeight: 24, color: '#1f2937', minHeight: 300 },
+  answerInput: { flex: 1, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 20, fontSize: 16, lineHeight: 24, color: '#1f2937', textAlignVertical: 'top'},
+  modalRoot: {flex: 1, backgroundColor: 'rgba(0,0,0,0.35)',},
+  modalSheet: {flex: 1, marginTop: 10, backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden'},
 });
