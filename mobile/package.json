@@ -1,0 +1,25 @@
+{
+  "name": "mobile",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "build-env": "node scripts/build-env.js",
+    "start": "node scripts/build-env.js && expo start",
+    "android": "node scripts/build-env.js && expo start --android",
+    "ios": "node scripts/build-env.js && expo start --ios",
+    "web": "node scripts/build-env.js && expo start --web"
+  },
+  "dependencies": {
+    "expo": "^57.0.24",
+    "expo-status-bar": "~57.0.1",
+    "expo-web-browser": "~57.0.0",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "^5.10.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.4",
+    "typescript": "~6.0.3"
+  },
+  "private": true
+}
