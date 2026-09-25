@@ -230,3 +230,7 @@ prompts/
   (email/contact form) instead of copying it by hand.
 - **Scheduling** — `node-cron` (or a system cron job) to run
   `scrape` → `processGemini`/`processGroq` → `export` periodically.
+- **Filter** — adding filter to mobile so all the jobs in 'all' tab
+  so all the jobs will be filtered from higher to lower evaluation.
+- **Pagination** — adding pagination to download from excel and 
+  showing on react page.

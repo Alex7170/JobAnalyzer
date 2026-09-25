@@ -13,6 +13,11 @@ import {
   fetchNewJobVacancies,
   rejectJobVacancy,
 } from '../services/googleSheetsService';
+import {
+  getPendingAnswers,
+  removePendingAnswer,
+  savePendingAnswer,
+} from '../services/pendingAnswersStorage';
 
 export type JobFilterType = 'priority' | 'all' | 'history';
 
@@ -46,8 +51,15 @@ export default function JobCards({ initialJobs }: JobCardsProps) {
     setError(null);
 
     try {
-      const result = await fetchNewJobVacancies();
-      setJobs(result.jobs);
+      const [result, pendingAnswers] = await Promise.all([
+        fetchNewJobVacancies(),
+        getPendingAnswers(),
+      ]);
+      const jobsWithPendingAnswers = result.jobs.map((job) => {
+        const pendingAnswer = pendingAnswers[job.id];
+        return pendingAnswer === undefined ? job : { ...job, answer: pendingAnswer };
+      });
+      setJobs(jobsWithPendingAnswers);
       setIsFallback(result.isFallback);
       setFallbackMessage(result.message || null);
       setCurrentIndex(0);
@@ -119,7 +131,9 @@ export default function JobCards({ initialJobs }: JobCardsProps) {
 
       // Send update to Google Sheets server
       const syncResult = await approveJobVacancy(targetId, answer);
-      if (!syncResult.success) {
+      if (syncResult.success) {
+        await removePendingAnswer(targetId);
+      } else {
         Alert.alert(
           'Sync Warning',
           `Approved locally, but could not sync to Google Sheets: ${syncResult.error || 'Server error'}`
@@ -128,6 +142,13 @@ export default function JobCards({ initialJobs }: JobCardsProps) {
     },
     [currentJob]
   );
+
+  const handleAnswerSaved = useCallback(async (jobId: string, answer: string) => {
+    await savePendingAnswer(jobId, answer);
+    setJobs((prevJobs) =>
+      prevJobs.map((item) => (item.id === jobId ? { ...item, answer } : item))
+    );
+  }, []);
 
   const handleReject = useCallback(async () => {
     if (!currentJob) return;
@@ -144,7 +165,9 @@ export default function JobCards({ initialJobs }: JobCardsProps) {
 
     // Send update to Google Sheets server
     const syncResult = await rejectJobVacancy(targetId);
-    if (!syncResult.success) {
+    if (syncResult.success) {
+      await removePendingAnswer(targetId);
+    } else {
       Alert.alert(
         'Sync Warning',
         `Rejected locally, but could not sync to Google Sheets: ${syncResult.error || 'Server error'}`
@@ -283,6 +306,7 @@ export default function JobCards({ initialJobs }: JobCardsProps) {
             job={currentJob}
             onApprove={handleApprove}
             onReject={handleReject}
+            onAnswerSaved={handleAnswerSaved}
           />
         )}
       </View>

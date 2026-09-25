@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Alert,
   Keyboard,
   Linking,
   Modal,
@@ -50,6 +51,7 @@ interface JobCardProps {
   job: JobCardData;
   onApprove: (data: { answer: string }) => void;
   onReject: () => void;
+  onAnswerSaved: (jobId: string, answer: string) => Promise<void>;
 }
 
 const truncate = (text?: string | null) => {
@@ -57,7 +59,7 @@ const truncate = (text?: string | null) => {
   return text.length > TRUNCATE_LENGTH ? `${text.slice(0, TRUNCATE_LENGTH).trimEnd()}…` : text;
 };
 
-export default function JobCard({ job, onApprove, onReject }: JobCardProps) {
+export default function JobCard({ job, onApprove, onReject, onAnswerSaved }: JobCardProps) {
   const [expanded, setExpanded] = useState<ExpandedSection>('none');
   const [answerText, setAnswerText] = useState(job.answer || '');
   const [savedAnswer, setSavedAnswer] = useState(job.answer || '');
@@ -100,11 +102,16 @@ export default function JobCard({ job, onApprove, onReject }: JobCardProps) {
   }, []);
 
   const closeSection = useCallback(() => setExpanded('none'), []);
-  const saveAnswer = useCallback(() => {
-    setSavedAnswer(answerText);
-    Keyboard.dismiss();
-    closeSection();
-  }, [answerText, closeSection]);
+  const saveAnswer = useCallback(async () => {
+    try {
+      await onAnswerSaved(job.id, answerText);
+      setSavedAnswer(answerText);
+      Keyboard.dismiss();
+      closeSection();
+    } catch (error) {
+      Alert.alert('Save Warning', `Could not save the answer locally: ${(error as Error).message}`);
+    }
+  }, [answerText, closeSection, job.id, onAnswerSaved]);
 
   const position = useRef(new Animated.ValueXY()).current;
 

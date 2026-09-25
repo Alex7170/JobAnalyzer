@@ -11,6 +11,7 @@ function normalizeJobItem(raw: Record<string, unknown>): JobCardData | null {
   if (!raw || typeof raw !== 'object') return null;
 
   const id = raw.id != null ? String(raw.id).trim() : '';
+  if (!id) return null;
   const rawStatus = String(raw.status || 'ANALYZED').trim().toUpperCase();
   const validStatuses: JobStatus[] = ['SCRAPED', 'ANALYZED', 'APPROVED', 'SKIPPED', 'ANSWERED'];
   const status: JobStatus = validStatuses.includes(rawStatus as JobStatus)
@@ -23,7 +24,7 @@ function normalizeJobItem(raw: Record<string, unknown>): JobCardData | null {
       : Number.parseInt(String(raw.evaluation ?? '0'), 10) || 0;
 
   return {
-    id: id || undefined,
+    id,
     url: raw.url ? String(raw.url) : undefined,
     title: String(raw.title || '').trim(),
     company: String(raw.company || '').trim(),
