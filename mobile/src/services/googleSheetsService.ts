@@ -87,7 +87,7 @@ export async function fetchNewJobVacancies(): Promise<FetchVacanciesResult> {
       url.searchParams.set('sheet', GOOGLE_SHEETS_CONFIG.sheetName);
     }
 
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url.toString(), {     
       method: 'GET',
       headers: { Accept: 'application/json' },
     });
@@ -133,14 +133,20 @@ export async function updateJobStatus(
         id: jobId,
         status,
         answer: answer ?? null,
-        // Which spreadsheet tab to write to — set via EXPO_PUBLIC_GOOGLE_SHEETS_TAB
-        // in .env.default / .env.noit (see config/googleSheets.ts).
         sheet: GOOGLE_SHEETS_CONFIG.sheetName || undefined,
       }),
     });
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Server reported failure');
+    }
+    if (answer != null && data.answerUpdated === false) {
+      throw new Error('Status updated, but answer column was not found on the sheet');
     }
 
     return { success: true };

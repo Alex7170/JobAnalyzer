@@ -18,10 +18,9 @@ import { styles } from './JobCard.styles';
 
 // How many characters to show in the preview opening overlay.
 const TRUNCATE_LENGTH = 120;
-// How far (px) a swipe has to travel before it counts as a decision
-// instead of springing back to center.
-const SWIPE_THRESHOLD = 120;
-// How far off-screen the card flies once a decision is made.
+// How far (px) a swipe has to travel before it navigates instead of springing back.
+const SWIPE_THRESHOLD = 50;
+// How far off-screen the card flies for decisions and navigation.
 const FLY_DISTANCE = 500;
 const FLY_DURATION_MS = 220;
 
@@ -52,6 +51,9 @@ interface JobCardProps {
   onApprove: (data: { answer: string }) => void;
   onReject: () => void;
   onAnswerSaved: (jobId: string, answer: string) => Promise<void>;
+  canSwipePrevious: boolean;
+  canSwipeNext: boolean;
+  onSwipe: (direction: 'previous' | 'next') => void;
 }
 
 const truncate = (text?: string | null) => {
@@ -59,7 +61,15 @@ const truncate = (text?: string | null) => {
   return text.length > TRUNCATE_LENGTH ? `${text.slice(0, TRUNCATE_LENGTH).trimEnd()}…` : text;
 };
 
-export default function JobCard({ job, onApprove, onReject, onAnswerSaved }: JobCardProps) {
+export default function JobCard({
+  job,
+  onApprove,
+  onReject,
+  onAnswerSaved,
+  canSwipePrevious,
+  canSwipeNext,
+  onSwipe,
+}: JobCardProps) {
   const [expanded, setExpanded] = useState<ExpandedSection>('none');
   const [answerText, setAnswerText] = useState(job.answer || '');
   const [savedAnswer, setSavedAnswer] = useState(job.answer || '');
@@ -114,6 +124,8 @@ export default function JobCard({ job, onApprove, onReject, onAnswerSaved }: Job
   }, [answerText, closeSection, job.id, onAnswerSaved]);
 
   const position = useRef(new Animated.ValueXY()).current;
+  const swipePropsRef = useRef({ canSwipePrevious, canSwipeNext, onSwipe });
+  swipePropsRef.current = { canSwipePrevious, canSwipeNext, onSwipe };
 
   const decide = useCallback(
     (direction: 'right' | 'left') => {
@@ -140,7 +152,9 @@ export default function JobCard({ job, onApprove, onReject, onAnswerSaved }: Job
         toValue: { x: toX, y: 0 },
         duration: FLY_DURATION_MS,
         useNativeDriver: true,
-      }).start(() => decideRef.current(direction));
+      }).start(({ finished }) => {
+        if (finished) decideRef.current(direction);
+      });
     },
     [position]
   );
@@ -183,9 +197,29 @@ export default function JobCard({ job, onApprove, onReject, onAnswerSaved }: Job
       }),
       onPanResponderRelease: (_evt, gestureState) => {
         if (gestureState.dx > SWIPE_THRESHOLD) {
-          flyAway('right');
+          if (swipePropsRef.current.canSwipePrevious) {
+            Animated.timing(position, {
+              toValue: { x: FLY_DISTANCE, y: 0 },
+              duration: FLY_DURATION_MS,
+              useNativeDriver: true,
+            }).start(({ finished }) => {
+              if (finished) swipePropsRef.current.onSwipe('previous');
+            });
+          } else {
+            resetPosition();
+          }
         } else if (gestureState.dx < -SWIPE_THRESHOLD) {
-          flyAway('left');
+          if (swipePropsRef.current.canSwipeNext) {
+            Animated.timing(position, {
+              toValue: { x: -FLY_DISTANCE, y: 0 },
+              duration: FLY_DURATION_MS,
+              useNativeDriver: true,
+            }).start(({ finished }) => {
+              if (finished) swipePropsRef.current.onSwipe('next');
+            });
+          } else {
+            resetPosition();
+          }
         } else {
           resetPosition();
         }
@@ -198,12 +232,12 @@ export default function JobCard({ job, onApprove, onReject, onAnswerSaved }: Job
     inputRange: [-FLY_DISTANCE, 0, FLY_DISTANCE],
     outputRange: ['-12deg', '0deg', '12deg'],
   });
-  const likeOpacity = position.x.interpolate({
+  const previousOpacity = position.x.interpolate({
     inputRange: [0, SWIPE_THRESHOLD],
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
-  const skipOpacity = position.x.interpolate({
+  const nextOpacity = position.x.interpolate({
     inputRange: [-SWIPE_THRESHOLD, 0],
     outputRange: [1, 0],
     extrapolate: 'clamp',
@@ -284,42 +318,55 @@ export default function JobCard({ job, onApprove, onReject, onAnswerSaved }: Job
       ]}
       {...panResponder.panHandlers}
     >
-      <Animated.View pointerEvents="none" style={[styles.swipeBadge, styles.likeBadge, { opacity: likeOpacity }]}>
-        <Text style={styles.swipeBadgeText}>APPROVE</Text>
-      </Animated.View>
-      <Animated.View pointerEvents="none" style={[styles.swipeBadge, styles.skipBadge, { opacity: skipOpacity }]}>
-        <Text style={styles.swipeBadgeText}>SKIP</Text>
-      </Animated.View>
+    <Animated.View pointerEvents="none" style={[styles.swipeBadge, styles.previousBadge, { opacity: previousOpacity }]}>
+      <View style={styles.badgeRow}>
+        <View style={styles.arrowBox}>
+          <Text style={[styles.swipeArrow, styles.arrowFlipped]}>→</Text>
+        </View>
+        <Text style={styles.swipeBadgeText}>PREVIOUS</Text>
+      </View>
+    </Animated.View>
+    <Animated.View pointerEvents="none" style={[styles.swipeBadge, styles.nextBadge, { opacity: nextOpacity }]}>
+      <View style={styles.badgeRow}>
+        <Text style={styles.swipeBadgeText}>NEXT</Text>
+        <View style={styles.arrowBox}>
+          <Text style={styles.swipeArrow}>→</Text>
+        </View>
+      </View>
+    </Animated.View>
 
-      <View style={styles.header}>
-        <Text style={styles.title} numberOfLines={2}>{job.title}</Text>
-        <Text style={styles.company}>{job.company}</Text>
-        <Text style={styles.location}>{job.location}</Text>
-        {job.url ? (
-          <TouchableOpacity onPress={openPosting} style={styles.linkRow} activeOpacity={0.7}>
-            <Text style={styles.linkText}>View posting ↗</Text>
+      <View style={styles.cardContent}>
+        <View style={styles.header}>
+          <Text style={styles.title} numberOfLines={2}>{job.title}</Text>
+          <Text style={styles.company}>{job.company}</Text>
+          <Text style={styles.location}>{job.location}</Text>
+          {job.url ? (
+            <TouchableOpacity onPress={openPosting} style={styles.linkRow} activeOpacity={0.7}>
+              <Text style={styles.linkText}>View posting ↗</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>
+          <TouchableOpacity style={styles.textBlock} activeOpacity={0.7} onPress={() => setExpanded('summary')}><Text style={styles.blockLabel}>Summary</Text><Text style={styles.blockPreview}>{truncate(job.summary)}</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.textBlock} activeOpacity={0.7} onPress={() => setExpanded('description')}><Text style={styles.blockLabel}>Description</Text><Text style={styles.blockPreview}>{truncate(job.description)}</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.textBlock} activeOpacity={0.7} onPress={() => setExpanded('answer')}>
+            <View style={styles.answerLabelRow}><Text style={styles.blockLabel}>Answer</Text>{isDirty && <View style={styles.dirtyDot} />}</View>
+            <Text style={styles.blockPreview}>{answerText ? truncate(answerText) : 'Tap to write an answer…'}</Text>
           </TouchableOpacity>
-        ) : null}
+        </ScrollView>
+        <View style={styles.evaluationRow}><View style={styles.evaluationBadge}><Text style={styles.evaluationText}>{job.evaluation}</Text><Text style={styles.evaluationSubtext}>/10</Text></View></View>
+        <View style={styles.actionRow}>
+          <TouchableOpacity style={[styles.rejectButton, rejected && styles.rejectButtonDone]} activeOpacity={0.8} onPress={reject}>
+            <Text style={styles.rejectButtonText}>{rejected ? 'Skipped' : 'Reject'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.approveButton, approved && styles.approveButtonDone]} activeOpacity={0.8} onPress={approve}>
+            <Text style={styles.approveButtonText}>{approved ? 'Approved ✓' : 'Approve'}</Text>
+          </TouchableOpacity>
+        </View>
+        {expanded === 'description' && renderOverlay('Description', job.description)}
+        {expanded === 'summary' && renderOverlay('Summary', job.summary)}
       </View>
-      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity style={styles.textBlock} activeOpacity={0.7} onPress={() => setExpanded('summary')}><Text style={styles.blockLabel}>Summary</Text><Text style={styles.blockPreview}>{truncate(job.summary)}</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.textBlock} activeOpacity={0.7} onPress={() => setExpanded('description')}><Text style={styles.blockLabel}>Description</Text><Text style={styles.blockPreview}>{truncate(job.description)}</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.textBlock} activeOpacity={0.7} onPress={() => setExpanded('answer')}>
-          <View style={styles.answerLabelRow}><Text style={styles.blockLabel}>Answer</Text>{isDirty && <View style={styles.dirtyDot} />}</View>
-          <Text style={styles.blockPreview}>{answerText ? truncate(answerText) : 'Tap to write an answer…'}</Text>
-        </TouchableOpacity>
-      </ScrollView>
-      <View style={styles.evaluationRow}><View style={styles.evaluationBadge}><Text style={styles.evaluationText}>{job.evaluation}</Text><Text style={styles.evaluationSubtext}>/10</Text></View></View>
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={[styles.rejectButton, rejected && styles.rejectButtonDone]} activeOpacity={0.8} onPress={reject}>
-          <Text style={styles.rejectButtonText}>{rejected ? 'Skipped' : 'Reject'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.approveButton, approved && styles.approveButtonDone]} activeOpacity={0.8} onPress={approve}>
-          <Text style={styles.approveButtonText}>{approved ? 'Approved ✓' : 'Approve'}</Text>
-        </TouchableOpacity>
-      </View>
-      {expanded === 'description' && renderOverlay('Description', job.description)}
-      {expanded === 'summary' && renderOverlay('Summary', job.summary)}
+
       {renderAnswerModal()}
     </Animated.View>
   );

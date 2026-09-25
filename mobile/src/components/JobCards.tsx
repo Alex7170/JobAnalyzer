@@ -23,6 +23,22 @@ export type JobFilterType = 'priority' | 'all' | 'history';
 
 const isPending = (job: JobCardData) => job.status !== 'APPROVED' && job.status !== 'SKIPPED';
 const isDecided = (job: JobCardData) => job.status === 'APPROVED' || job.status === 'SKIPPED';
+const getEvaluation = (job: JobCardData) =>
+  Number.isFinite(job.evaluation) ? job.evaluation : 0;
+
+function compareByEvaluationAndScrapedDate(a: JobCardData, b: JobCardData) {
+  const evaluationDifference = getEvaluation(b) - getEvaluation(a);
+  if (evaluationDifference !== 0) return evaluationDifference;
+
+  const aScrapedAt = Date.parse(a.scrapedAt ?? '');
+  const bScrapedAt = Date.parse(b.scrapedAt ?? '');
+  const aHasValidDate = Number.isFinite(aScrapedAt);
+  const bHasValidDate = Number.isFinite(bScrapedAt);
+
+  if (!aHasValidDate) return bHasValidDate ? 1 : 0;
+  if (!bHasValidDate) return -1;
+  return bScrapedAt - aScrapedAt;
+}
 
 export interface JobCardsProps {
   /**
@@ -89,7 +105,7 @@ export default function JobCards({ initialJobs }: JobCardsProps) {
         return jobs.filter(isDecided).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
       case 'all':
       default:
-        return jobs.filter(isPending);
+        return jobs.filter(isPending).sort(compareByEvaluationAndScrapedDate);
     }
   }, [jobs, filter]);
 
@@ -307,6 +323,15 @@ export default function JobCards({ initialJobs }: JobCardsProps) {
             onApprove={handleApprove}
             onReject={handleReject}
             onAnswerSaved={handleAnswerSaved}
+            canSwipePrevious={currentIndex > 0}
+            canSwipeNext={currentIndex < filteredJobs.length - 1}
+            onSwipe={(direction) => {
+              if (direction === 'previous') {
+                handlePrev();
+              } else {
+                handleNext();
+              }
+            }}
           />
         )}
       </View>

@@ -16,7 +16,7 @@ type TableColumn = {
 
 const STATUS_COLORS: Readonly<Record<string, RgbColor>> = {
   SCRAPED: { red: 0.93, green: 0.93, blue: 0.93 }, // light gray — fresh, untouched
-  APPROVED: { red: 0.79, green: 0.94, blue: 0.80 }, // green — ready to apply
+  APPROVED: { red: 0.2, green: 1, blue: 0.20 }, // green — ready to apply
   SKIPPED: { red: 0.96, green: 0.80, blue: 0.80 }, // red/pink — declined
   ANSWERED: { red: 0.80, green: 0, blue: 0.96 }, // purple — done
   // ANALYZED is intentionally missing here — it's split into two shades

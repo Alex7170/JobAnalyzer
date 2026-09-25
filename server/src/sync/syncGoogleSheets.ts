@@ -27,6 +27,8 @@ const SPREADSHEET_ID =
 const SHEET_NAME =
   process.env.GOOGLE_SHEETS_TAB?.trim() || "Jobs";
 
+const PIPELINE_ONLY_STATUSES = new Set<JobStatus>(["SCRAPED", "ANALYZED"]);
+
 function sheetRange(range: string): string {
   // A tab title can legally contain apostrophes; A1 notation escapes them.
   return `'${SHEET_NAME.replaceAll("'", "''")}'!${range}`;
@@ -219,21 +221,19 @@ async function main(): Promise<void> {
           continue;
         }
 
+        if (PIPELINE_ONLY_STATUSES.has(status)) {
+          // Never import SCRAPED/ANALYZED back from the sheet — see the
+          // comment on PIPELINE_ONLY_STATUSES above.
+          continue;
+        }
+
         statuses.set(id, status);
       }
     }
   }
 
-  // ------------------------------------------------------------
-  // Update SQLite from Google Sheets
-  // ------------------------------------------------------------
-
   const changed =
     await updateStatuses(statuses);
-
-  // ------------------------------------------------------------
-  // Read updated data from SQLite
-  // ------------------------------------------------------------
 
   const jobs = await getAllRecords();
 
